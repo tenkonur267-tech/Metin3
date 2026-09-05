@@ -22,6 +22,7 @@ import { Combat } from './systems/Combat.js';
 import { Inventory } from './systems/Inventory.js';
 import { InventoryUI } from './ui/InventoryUI.js';
 import { starterItems } from './data/items.js';
+import { SURUM } from './data/version.js';
 import { FloatingText } from './ui/FloatingText.js';
 import { KINGDOMS } from './data/kingdoms.js';
 
@@ -56,6 +57,9 @@ class Game {
     this.inventory = new Inventory({ gozSayisi: 45 });
     this.inventoryUI = new InventoryUI(document.getElementById('hud'), this.inventory);
     this.inventoryUI.onMesaj = (m) => this.hud.toast(m);
+    // Çanta doluyken çıkarılan eşya yere düşsün: çıkarma hiçbir zaman
+    // engellenmesin.
+    this.inventoryUI.onYereAt = (item) => this._esyaYereAt(item);
     this.inventory.subscribe(() => this._ekipmanUygula());
 
     this.select.onStart((k) => this.start(k));
@@ -180,6 +184,19 @@ class Game {
       ? this.loadedModel.character
       : new Warrior(kingdom.armor, { scale: 1, weapon: 'twohand' });
     /*
+     * Model yüklenemezse prosedürel savaşçıya düşülüyor. O savaşçının zırhı
+     * gövdesine gömülü: kuşanılan eşyalar silah, kalkan ve pelerini
+     * değiştirebiliyor ama zırhı çıkaramıyor. Eskiden bu düşüş sessizdi ve
+     * "eşyayı çıkardım, üstümde duruyor" gibi görünüyordu. Artık hem ekranda
+     * söyleniyor hem de sol alttaki damgada kip yazıyor.
+     */
+    this.karakterKipi = this.loadedModel ? 'rig' : 'yedek';
+    this.hud.damga = SURUM + ' · ' + this.karakterKipi;
+    if (!this.loadedModel) {
+      setTimeout(() => this.hud.toast(
+        'Karakter modeli yüklenemedi — yedek görünüm kullanılıyor'), 900);
+    }
+    /*
      * Oyuncunun görünümü envanterden geliyor: kuşanılan her eşya kendi
      * modelini üretiyor. Bu yüzden burada tam zırh seti takılmıyor, yalnızca
      * krallık paleti veriliyor; parçaları _ekipmanUygula kuruyor.
@@ -286,11 +303,23 @@ class Game {
     this.player.applyEquipmentVisuals?.(this.inventory.gorselEkipman());
   }
 
+  /**
+   * Kuşanılmış eşya çantaya sığmadığı için yere bırakıldı.
+   * @param {object} item
+   */
+  _esyaYereAt(item) {
+    if (!this.player || !this.combat) return;
+    this.combat.dropItem?.(item, this.controller.pos);
+    this.hud.toast(`${item.ad} yere bırakıldı`);
+  }
+
   /** Yerden eşya toplandı. */
   _esyaTopla(item) {
     const i = this.inventory.ekle(item);
-    if (i < 0) { this.hud.toast('Çanta dolu — eşya alınamadı'); return; }
+    // false: eşya alınamadı, yerde kalsın
+    if (i < 0) { this.hud.toast('Çanta dolu — eşya alınamadı'); return false; }
     this.hud.toast(`${item.ad} alındı`);
+    return true;
   }
 
   /** Canavar vuruşu oyuncuya isabet etti. */

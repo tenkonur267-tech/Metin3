@@ -233,7 +233,8 @@ export class HUD {
     this._fpsFrames++;
     const elapsed = (now - this._fpsLast) / 1000;
     if (elapsed >= 0.5) {
-      this.el.fps.textContent = Math.round(this._fpsFrames / elapsed) + ' FPS';
+      this.el.fps.textContent = Math.round(this._fpsFrames / elapsed) + ' FPS'
+        + (this.damga ? ' · ' + this.damga : '');
       this._fpsLast = now;
       this._fpsFrames = 0;
     }

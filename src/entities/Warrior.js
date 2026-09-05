@@ -973,6 +973,23 @@ export class Warrior {
     return this.state === 'attack' || this.state === 'spin' || this.state === 'tripleCut';
   }
 
+  /**
+   * Kuşanılan eşyalara göre görünümü günceller.
+   *
+   * Bu prosedürel savaşçı yalnızca yedek: zırhı gövdesine gömülü olduğu için
+   * göğüslük/miğfer/çizme çıkarılamıyor. Silah, kalkan ve pelerin gerçek
+   * ekipmanı izliyor; kalanı için karakterin "hep zırhlı" olduğu kabul
+   * ediliyor. (Gerçek ekipman görünümleri RiggedCharacter'da.)
+   *
+   * @param {Object<string, ?object>} gorsel
+   */
+  applyEquipmentVisuals(gorsel = {}) {
+    if (this.weapon) this.weapon.visible = !!gorsel.sword;
+    if (this.shield) this.shield.visible = !!gorsel.shield;
+    if (this.cape) this.cape.visible = !!gorsel.cape;
+    this.silahVar = !!gorsel.sword;
+  }
+
   getWeaponTipWorld(out = new THREE.Vector3()) {
     return this.weaponTip.getWorldPosition(out);
   }

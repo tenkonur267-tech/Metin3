@@ -88,6 +88,23 @@ export class Inventory {
     return true;
   }
 
+  /**
+   * Kuşanılmış eşyayı çantaya bakmadan çıkarır ve döndürür.
+   *
+   * Çağıran, dönen eşyayı bir yere koymakla yükümlü (oyunda yere düşüyor).
+   * Çanta dolu diye çıkarmayı reddetmek, oyuncunun ekipmanı üstünden
+   * alamamasına yol açıyordu.
+   *
+   * @returns {?object} çıkarılan eşya
+   */
+  cikartZorla(slot) {
+    const item = this.ekipman[slot];
+    if (!item) return null;
+    this.ekipman[slot] = null;
+    this._notify('cikart', { item, slot, yereAtildi: true });
+    return item;
+  }
+
   /** Kuşanılmış eşyaların toplam katkısı. */
   toplam() {
     let saldiri = 0, savunma = 0;

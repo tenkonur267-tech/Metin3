@@ -22,6 +22,7 @@ export class LootDrop {
     this.terrain = terrain;
     this.alinabilir = false;     // düşme animasyonu bitmeden alınamaz
     this.alindi = false;
+    this.bekleme = 0;            // çanta doluyken geri çevrilince bekleme
     this.time = 0;
     this.omur = 90;              // saniye; sonra kaybolur
 
@@ -111,6 +112,9 @@ export class LootDrop {
       this.auraMat.opacity *= k;
       if (kalan <= 0) return true;
     }
+
+    // Çanta dolu olduğu için geri çevrilen eşya bir süre yerde bekler
+    if (this.bekleme > 0) { this.bekleme -= dt; return false; }
 
     // Yaklaşınca toplanır
     if (this.alinabilir && !this.alindi) {

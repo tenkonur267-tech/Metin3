@@ -281,6 +281,19 @@ export class Combat {
    * @param {number} level
    * @param {number} sans
    */
+  /**
+   * Belirli bir eşyayı yere bırakır (çantası dolu oyuncunun çıkardığı gibi).
+   * @param {object} item
+   * @param {THREE.Vector3} pos
+   */
+  dropItem(item, pos) {
+    if (!item) return null;
+    const drop = new LootDrop(item, new THREE.Vector3(pos.x, pos.y, pos.z), this.terrain);
+    drop.addTo(this.scene);
+    this.drops.push(drop);
+    return drop;
+  }
+
   _dropLoot(pos, level, sans) {
     const item = rollDrop(level, sans);
     if (!item) return;
@@ -396,7 +409,18 @@ export class Combat {
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i];
       if (!d.update(dt, pos)) continue;
-      if (d.alindi) this.onLoot?.(d.item);
+      if (d.alindi) {
+        /*
+         * Çanta doluysa eşya alınamıyor; o zaman yerde kalmalı. Eskiden
+         * koşulsuz yok ediliyordu ve dolu çantayla üstünden geçmek eşyayı
+         * siliyordu. onLoot false döndüğünde toplama iptal ediliyor.
+         */
+        if (this.onLoot?.(d.item) === false) {
+          d.alindi = false;
+          d.bekleme = 2.5;           // hemen yeniden denemesin
+          continue;
+        }
+      }
       d.dispose(this.scene);
       this.drops.splice(i, 1);
     }

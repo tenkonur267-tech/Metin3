@@ -193,21 +193,23 @@ export class InventoryUI {
        * durmaya devam ettiğini görüyordu. Artık butonun kendisi durumu
        * söylüyor.
        */
+      /*
+       * Çıkarma her koşulda çalışmalı. Çanta doluysa eşya çantaya değil yere
+       * düşüyor; eskiden çıkarma sessizce reddediliyordu ve oyuncu eşyayı
+       * üstünden alamıyordu.
+       */
       const slot = this.secili.slot;
-      if (this.inv.doluMu) {
-        const b = this._buton(acts, 'Çanta dolu', () => {
-          this.onMesaj?.('Çanta dolu — çıkarmak için önce yer aç');
-        });
-        b.classList.add('pasif');
-      } else {
-        this._buton(acts, 'Çıkar', () => {
-          if (!this.inv.cikart(slot)) {
-            this.onMesaj?.('Çanta dolu — çıkarmak için önce yer aç');
-            return;
-          }
-          this.secili = null;
-        });
-      }
+      const dolu = this.inv.doluMu;
+      this._buton(acts, dolu ? 'Çıkar ve yere at' : 'Çıkar', () => {
+        if (dolu) {
+          const item = this.inv.cikartZorla(slot);
+          if (item) this.onYereAt?.(item);
+        } else if (!this.inv.cikart(slot)) {
+          const item = this.inv.cikartZorla(slot);
+          if (item) this.onYereAt?.(item);
+        }
+        this.secili = null;
+      });
     }
   }
 

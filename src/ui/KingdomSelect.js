@@ -5,6 +5,7 @@
  * karakterinin zırh rengini ve dünyanın atmosferini belirliyor.
  */
 import { KINGDOMS } from '../data/kingdoms.js';
+import { SURUM } from '../data/version.js';
 
 const CRESTS = { shinsoo: '🐉', chunjo: '🐅', jinno: '🐢' };
 
@@ -33,6 +34,7 @@ export class KingdomSelect {
         Kişisel kullanım için yapılmış, Metin2'den esinlenen bağımsız bir
         çalışma. Tüm modeller, dokular ve animasyonlar oyunun içinde
         prosedürel olarak üretilir; hiçbir ticari varlık kullanılmaz.
+        <br>Sürüm ${SURUM}
       </div>
     `;
 
