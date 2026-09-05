@@ -1,0 +1,492 @@
+/* ================================================================
+   Metin3 — arayüz
+   Doğu esintili koyu ahşap/altın paleti, mobil dokunma hedefleri
+   en az 44px, çentikli ekranlar için safe-area desteği.
+   ================================================================ */
+
+:root {
+  --gold: #d9b45a;
+  --gold-dim: #8a6f31;
+  --ink: #0d0a07;
+  --panel: rgba(22, 16, 10, 0.82);
+  --panel-solid: #1a1209;
+  --hp: linear-gradient(180deg, #ff6a5a, #b81f22 60%, #7a1416);
+  --mp: linear-gradient(180deg, #6ec8ff, #1f6fd0 60%, #123f80);
+  --xp: linear-gradient(180deg, #ffe08a, #d9a01e 60%, #8a6210);
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #05070a;
+  color: #f2e6cd;
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, -apple-system, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#game { position: fixed; inset: 0; }
+#scene { display: block; width: 100%; height: 100%; }
+
+/* Girdi katmanı: joystick ve kamera sürükleme burada yakalanır */
+#input-layer {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+  z-index: 10;
+}
+
+/* HUD katmanı tıklamayı geçirir; sadece düğmeler yakalar */
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+#hud > * { pointer-events: none; }
+#hud button, #hud .btn { pointer-events: auto; }
+
+/* ---------------- Sanal joystick ---------------- */
+.stick-base {
+  position: absolute;
+  width: 132px; height: 132px;
+  margin-left: -66px; margin-top: -66px;
+  border-radius: 50%;
+  border: 2px solid rgba(217, 180, 90, 0.45);
+  background: radial-gradient(circle, rgba(20,14,8,0.35), rgba(20,14,8,0.12) 70%, transparent);
+  pointer-events: none;
+  z-index: 15;
+}
+.stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 58px; height: 58px;
+  margin-left: -29px; margin-top: -29px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f4dfa8, #a8823a 60%, #5c451a);
+  border: 2px solid rgba(0,0,0,0.4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+/* ---------------- Sol üst: karakter paneli ---------------- */
+#char-panel {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  left: calc(10px + var(--safe-l));
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 14px 8px 8px;
+  background: var(--panel);
+  border: 1px solid var(--gold-dim);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+  max-width: 62vw;
+}
+#portrait {
+  width: 52px; height: 52px;
+  flex: 0 0 52px;
+  border-radius: 50%;
+  border: 2px solid var(--gold);
+  background: radial-gradient(circle at 40% 30%, #4a3a24, #17100a);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  position: relative;
+}
+#portrait .lvl {
+  position: absolute;
+  bottom: -6px; right: -6px;
+  min-width: 22px; height: 22px;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #f0d68f, #a07d2c);
+  color: #2a1d07;
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid #543f13;
+  padding: 0 4px;
+}
+#char-info { min-width: 148px; flex: 1; }
+#char-name {
+  font-size: 13px; font-weight: 700; letter-spacing: .4px;
+  display: flex; align-items: center; gap: 6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#char-name .kd {
+  width: 10px; height: 10px; border-radius: 2px;
+  flex: 0 0 10px;
+  box-shadow: 0 0 6px currentColor;
+}
+.bar {
+  position: relative;
+  height: 11px;
+  margin-top: 4px;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.65);
+  border: 1px solid rgba(0,0,0,0.8);
+  overflow: hidden;
+}
+.bar > i {
+  display: block; height: 100%; width: 100%;
+  transform-origin: left center;
+  transition: transform .18s ease-out;
+}
+.bar.hp > i { background: var(--hp); }
+.bar.mp > i { background: var(--mp); }
+.bar.xp { height: 7px; }
+.bar.xp > i { background: var(--xp); }
+.bar > span {
+  position: absolute; inset: 0;
+  font-size: 9px; line-height: 11px; text-align: center;
+  text-shadow: 0 1px 2px #000;
+  letter-spacing: .3px;
+}
+
+/* ---------------- Sağ üst: mini harita ---------------- */
+#minimap-wrap {
+  position: absolute;
+  top: calc(10px + var(--safe-t));
+  right: calc(10px + var(--safe-r));
+  width: 118px; height: 118px;
+  border-radius: 50%;
+  border: 2px solid var(--gold-dim);
+  background: var(--panel);
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.55);
+}
+#minimap { width: 100%; height: 100%; display: block; }
+#coords {
+  position: absolute;
+  top: calc(134px + var(--safe-t));
+  right: calc(10px + var(--safe-r));
+  font-size: 10px;
+  color: #c9b98f;
+  text-align: right;
+  text-shadow: 0 1px 2px #000;
+  line-height: 1.45;
+}
+
+/* ---------------- Alt sağ: aksiyon düğmeleri ---------------- */
+#actions {
+  position: absolute;
+  right: calc(16px + var(--safe-r));
+  bottom: calc(20px + var(--safe-b));
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  grid-template-rows: repeat(2, auto);
+  gap: 10px;
+  align-items: end;
+  justify-items: center;
+}
+.btn {
+  border: 2px solid var(--gold-dim);
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 30%, rgba(90,68,34,0.9), rgba(24,17,9,0.92));
+  color: #f4e3b6;
+  font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12);
+  transition: transform .07s ease, filter .07s ease;
+  position: relative;
+  touch-action: none;
+}
+.btn:active, .btn.held { transform: scale(0.92); filter: brightness(1.35); }
+.btn small {
+  position: absolute; bottom: 3px;
+  font-size: 8px; opacity: .7; letter-spacing: .5px;
+}
+.btn-lg { width: 84px; height: 84px; font-size: 30px; grid-column: 3; grid-row: 2; }
+.btn-md { width: 58px; height: 58px; }
+#btn-jump { grid-column: 2; grid-row: 2; }
+#btn-skill1 { grid-column: 3; grid-row: 1; }
+#btn-skill2 { grid-column: 2; grid-row: 1; }
+
+/* ---------------- Üst orta: bölge adı ---------------- */
+#zone-banner {
+  position: absolute;
+  top: calc(18vh + var(--safe-t));
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  opacity: 0;
+  transition: opacity .6s ease;
+}
+#zone-banner.show { opacity: 1; }
+#zone-banner .z1 {
+  font-size: clamp(20px, 5vw, 34px);
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--gold);
+  text-shadow: 0 2px 10px #000, 0 0 22px rgba(217,180,90,.4);
+}
+#zone-banner .z2 {
+  font-size: clamp(11px, 2.6vw, 14px);
+  color: #d6c9a5;
+  letter-spacing: 2px;
+  text-shadow: 0 2px 6px #000;
+}
+
+/* ---------------- Sol alt üstü: ipucu ---------------- */
+#hint {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + var(--safe-b));
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #b9ab88;
+  background: rgba(10,7,4,.55);
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(217,180,90,.22);
+  white-space: nowrap;
+  transition: opacity .5s ease;
+}
+
+#fps {
+  position: absolute;
+  left: calc(12px + var(--safe-l));
+  bottom: calc(10px + var(--safe-b));
+  font-size: 10px;
+  color: #7e7462;
+}
+
+/* ================================================================
+   Krallık seçim ekranı
+   ================================================================ */
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: calc(20px + var(--safe-t)) 16px calc(20px + var(--safe-b));
+  /* Arka planda dünyanın tanıtım uçuşu görünsün diye yarı saydam */
+  background:
+    radial-gradient(ellipse at 50% 20%, rgba(70,48,20,.42), transparent 60%),
+    linear-gradient(180deg, rgba(6,9,13,.90) 0%, rgba(12,9,6,.70) 42%,
+                    rgba(7,10,14,.92) 100%);
+  overflow-y: auto;
+  transition: opacity .5s ease;
+}
+#overlay.hidden { opacity: 0; pointer-events: none; }
+
+#title {
+  text-align: center;
+  line-height: 1.1;
+}
+#title h1 {
+  margin: 0;
+  font-size: clamp(38px, 12vw, 76px);
+  letter-spacing: 8px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #ffeaa9, #d9b45a 45%, #7d5c1c);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 6px 26px rgba(217,180,90,.22);
+}
+#title p {
+  margin: 6px 0 0;
+  font-size: clamp(10px, 3vw, 13px);
+  letter-spacing: 5px;
+  color: #9c8f70;
+  text-transform: uppercase;
+}
+
+#kingdoms {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 780px;
+}
+.kingdom {
+  flex: 1 1 200px;
+  min-width: 170px;
+  max-width: 240px;
+  padding: 16px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(217,180,90,.28);
+  background: linear-gradient(180deg, rgba(28,20,12,.92), rgba(12,9,6,.94));
+  cursor: pointer;
+  text-align: center;
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+}
+.kingdom::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--kc);
+}
+.kingdom:hover, .kingdom.sel {
+  transform: translateY(-4px);
+  border-color: var(--kc);
+  box-shadow: 0 10px 30px rgba(0,0,0,.6), 0 0 0 1px var(--kc) inset;
+}
+.kingdom .crest {
+  width: 62px; height: 62px;
+  margin: 4px auto 10px;
+  border-radius: 50%;
+  border: 2px solid var(--kc);
+  background: radial-gradient(circle at 40% 32%, color-mix(in srgb, var(--kc) 55%, #000), #0d0906);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--kc) 45%, transparent);
+}
+.kingdom h3 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: 2px;
+  color: #f4e6c4;
+}
+.kingdom .sub {
+  font-size: 10.5px;
+  color: var(--kc);
+  letter-spacing: 1.2px;
+  margin-top: 3px;
+  font-weight: 600;
+}
+.kingdom .desc {
+  font-size: 11px;
+  color: #a2967a;
+  margin-top: 9px;
+  line-height: 1.5;
+}
+.kingdom .meta {
+  margin-top: 10px;
+  font-size: 10px;
+  color: #7d735e;
+  border-top: 1px solid rgba(217,180,90,.15);
+  padding-top: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+
+#start {
+  pointer-events: auto;
+  padding: 13px 46px;
+  font-size: 15px;
+  letter-spacing: 3px;
+  font-weight: 700;
+  color: #241906;
+  background: linear-gradient(180deg, #f6dfa2, #c99f38 55%, #93701f);
+  border: 1px solid #6d5416;
+  border-radius: 30px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0,0,0,.55);
+  transition: transform .12s ease, filter .12s ease;
+}
+#start:hover { filter: brightness(1.08); }
+#start:active { transform: scale(.96); }
+#start:disabled { opacity: .4; cursor: default; filter: grayscale(1); }
+
+#loading {
+  text-align: center;
+  font-size: 12px;
+  color: #9c8f70;
+  letter-spacing: 2px;
+  min-height: 34px;
+}
+#loadbar {
+  width: min(320px, 76vw);
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 3px;
+  background: rgba(255,255,255,.08);
+  overflow: hidden;
+}
+#loadbar > i {
+  display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, #8a6f31, #f0d68f);
+  transition: width .3s ease;
+}
+
+#legal {
+  font-size: 9.5px;
+  color: #5f584a;
+  text-align: center;
+  max-width: 620px;
+  line-height: 1.6;
+}
+
+/* Yatay çevirme uyarısı — çok dar dikey ekranlarda */
+@media (max-width: 430px) and (orientation: portrait) {
+  #char-panel { padding: 6px 10px 6px 6px; }
+  #char-info { min-width: 116px; }
+  #minimap-wrap { width: 92px; height: 92px; }
+  #coords { top: calc(108px + var(--safe-t)); }
+  .btn-lg { width: 74px; height: 74px; }
+  .btn-md { width: 52px; height: 52px; }
+}
+
+/* ----------------------------------------------------------------
+   Dar ekran: krallık kartları tek ekrana sığan kompakt satıra döner,
+   böylece başlık ve başlat düğmesi kaydırmadan görünür kalır.
+   ---------------------------------------------------------------- */
+@media (max-height: 780px), (max-width: 620px) {
+  #overlay { gap: 12px; justify-content: center; }
+  #title h1 { font-size: clamp(30px, 10vw, 46px); letter-spacing: 5px; }
+  #title p { letter-spacing: 3px; }
+  #kingdoms { gap: 8px; flex-wrap: nowrap; }
+  .kingdom {
+    min-width: 0;
+    flex: 1 1 0;
+    padding: 12px 7px;
+    border-radius: 11px;
+  }
+  .kingdom .crest {
+    width: 46px; height: 46px;
+    font-size: 21px;
+    margin-bottom: 7px;
+  }
+  .kingdom h3 { font-size: 15px; letter-spacing: 1px; }
+  .kingdom .sub { font-size: 9px; letter-spacing: .4px; }
+  .kingdom .desc { display: none; }
+  .kingdom .meta {
+    flex-direction: column;
+    gap: 2px;
+    align-items: center;
+    font-size: 9px;
+    margin-top: 7px;
+    padding-top: 6px;
+  }
+  #start { padding: 12px 28px; font-size: 13px; letter-spacing: 2px; }
+  #legal { font-size: 8.5px; line-height: 1.5; }
+}
+
+/* ---------------- Kısa bildirim ---------------- */
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(23vh + var(--safe-b));
+  transform: translate(-50%, 8px);
+  padding: 8px 18px;
+  border-radius: 20px;
+  background: rgba(28, 12, 8, .88);
+  border: 1px solid rgba(217, 90, 70, .5);
+  color: #f0c9b4;
+  font-size: 12px;
+  letter-spacing: .5px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease, transform .22s ease;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
