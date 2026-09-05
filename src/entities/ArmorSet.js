@@ -49,9 +49,18 @@ function mesh(geo, mat, x = 0, y = 0, z = 0) {
 /** Krallık paletinden materyal seti. */
 export function makeArmorMaterials(theme) {
   const L = (o) => new THREE.MeshLambertMaterial(o);
+  const base = new THREE.Color(theme.base);
   return {
-    plate: L({ map: getTexture('armor', { a: theme.base, b: theme.trim }) }),
-    plain: L({ color: new THREE.Color(theme.base).multiplyScalar(1.12) }),
+    /*
+     * Lamel dokusu güçlü yatay çizgiler taşıyor. Her parçaya uygulandığında
+     * karakter "çizgili silindirler yığını" gibi okunuyordu; bu yüzden doku
+     * yalnızca geniş gövde yüzeylerinde kullanılıyor, geri kalan parçalar
+     * düz renk + altın kenarlıkla çözülüyor.
+     */
+    lamellar: L({ map: getTexture('armor', { a: theme.base, b: theme.trim }) }),
+    plate: L({ color: base.clone().multiplyScalar(1.05) }),
+    plain: L({ color: base.clone().multiplyScalar(1.22) }),
+    dark: L({ color: base.clone().multiplyScalar(0.62) }),
     gold: L({ color: new THREE.Color(theme.trim) }),
     cloth: L({ color: theme.cloth }),
     leather: L({ color: 0x4a3222 }),
@@ -79,6 +88,7 @@ export function buildArmorSet(theme, dim, pos) {
   const neckY = yOf('neck');
   const headY = yOf('head');
   const sw = dim.shoulderWidth;
+  const fwd = dim.forward ?? 1;    // modelin ileri yönü (+1 ya da -1)
 
   /* ---- Göğüslük: bel ile omuz arasını örter ---- */
   {
@@ -90,13 +100,25 @@ export function buildArmorSet(theme, dim, pos) {
     const d = sw * 0.74;
     const midY = (top + bottom) / 2 - chestY;      // göğüs kemiğine göre
 
-    g.add(mesh(plate(w, h, d, 0.18), M.plate, 0, midY, 0));
-    // Göğüs plakası
-    g.add(mesh(plate(w * 0.46, h * 0.36, d * 0.14, 0.3), M.gold, 0, midY + h * 0.22, d * 0.5));
-    // Karın bandı
-    g.add(mesh(plate(w * 0.92, h * 0.16, d * 1.02, 0.15), M.plain, 0, midY - h * 0.34, 0));
+    // Gövde iki kademeli: göğüs geniş, bel dar — düz kutu yerine siluet
+    const upper = plate(w, h * 0.56, d, 0.20);
+    upper.translate(0, midY + h * 0.22, 0);
+    g.add(mesh(upper, M.plate));
+    const lower = plate(w * 0.82, h * 0.48, d * 0.88, 0.24);
+    lower.translate(0, midY - h * 0.24, 0);
+    g.add(mesh(lower, M.plate));
+    // Göğüs kabartısı
+    const bulge = new THREE.SphereGeometry(w * 0.30, 12, 8);
+    bulge.scale(1.35, 0.85, 0.55);
+    bulge.translate(0, midY + h * 0.24, fwd * d * 0.40);
+    g.add(mesh(bulge, M.plain));
+    // Yalnızca karın bölgesinde lamel bandı
+    g.add(mesh(plate(w * 0.80, h * 0.26, d * 0.90, 0.18), M.lamellar, 0, midY - h * 0.30, 0));
+    // Altın kenarlıklar
+    g.add(mesh(plate(w * 1.02, h * 0.06, d * 1.03, 0.2), M.gold, 0, midY + h * 0.50, 0));
+    g.add(mesh(plate(w * 0.84, h * 0.05, d * 0.92, 0.2), M.gold, 0, midY - h * 0.47, 0));
     // Boyunluk
-    g.add(mesh(new THREE.TorusGeometry(w * 0.26, w * 0.055, 6, 16).rotateX(Math.PI / 2),
+    g.add(mesh(new THREE.TorusGeometry(w * 0.24, w * 0.05, 6, 16).rotateX(Math.PI / 2),
       M.gold, 0, midY + h * 0.52, 0));
     add('chest', 'chest', g, [0, 0, 0]);
   }
@@ -105,18 +127,28 @@ export function buildArmorSet(theme, dim, pos) {
   for (const side of ['L', 'R']) {
     const s = side === 'L' ? -1 : 1;
     const g = new THREE.Group();
-    const r = sw * 0.38;
-    const cap = dome(r, 0.62, 14);
-    cap.scale(1.05, 0.95, 1.10);
+    const r = sw * 0.32;
+    const cap = dome(r, 0.60, 14);
+    cap.scale(1.02, 0.88, 1.06);
     g.add(mesh(cap, M.plate, 0, 0, 0));
-    const skirt = dome(r * 0.95, 0.5, 14);
-    skirt.scale(1.14, 0.55, 1.16);
-    g.add(mesh(skirt, M.plain, 0, -r * 0.34, 0));
-    g.add(mesh(new THREE.TorusGeometry(r * 0.92, r * 0.11, 6, 16).rotateX(Math.PI / 2),
-      M.gold, 0, -r * 0.06, 0));
-    g.add(mesh(new THREE.ConeGeometry(r * 0.22, r * 0.7, 6), M.gold, s * r * 0.78, r * 0.34, 0));
+    const skirt = dome(r * 0.92, 0.46, 14);
+    skirt.scale(1.10, 0.46, 1.12);
+    g.add(mesh(skirt, M.plain, 0, -r * 0.30, 0));
+    g.add(mesh(new THREE.TorusGeometry(r * 0.90, r * 0.085, 6, 16).rotateX(Math.PI / 2),
+      M.gold, 0, -r * 0.04, 0));
     // Omuz ekleminin üstüne ve hafifçe dışına: gövdeye gömülmesin
     add('pauldron' + side, 'arm' + side, g, [s * r * 0.16, r * 0.30, 0]);
+  }
+
+  /* ---- Üst kol zırhı: omuzluk ile kolluk arasını kapatır ---- */
+  for (const side of ['L', 'R']) {
+    const g = new THREE.Group();
+    const len = dim.upperArm;
+    const r = len * 0.20;
+    g.add(mesh(new THREE.CylinderGeometry(r * 0.98, r * 0.86, len * 0.62, 10), M.plate, 0, 0, 0));
+    g.add(mesh(new THREE.TorusGeometry(r * 0.92, r * 0.13, 6, 14).rotateX(Math.PI / 2),
+      M.gold, 0, -len * 0.30, 0));
+    add('sleeve' + side, 'arm' + side, g, [0, -len * 0.42, 0]);
   }
 
   /* ---- Kolluklar: ön kolun bilek yarısını sarar ---- */
@@ -148,17 +180,32 @@ export function buildArmorSet(theme, dim, pos) {
     const len = dim.shin;
     const r = len * 0.20;
     const knee = dome(r * 1.15, 0.62, 10);
-    g.add(mesh(knee, M.plate, 0, 0, r * 0.20));
-    g.add(mesh(plate(r * 1.75, len * 0.52, r * 1.6, 0.2), M.plain, 0, -len * 0.34, r * 0.05));
+    g.add(mesh(knee, M.plate, 0, 0, fwd * r * 0.20));
+    g.add(mesh(plate(r * 1.75, len * 0.52, r * 1.6, 0.2), M.plain, 0, -len * 0.34, fwd * r * 0.05));
     add('greave' + side, 'shin' + side, g, [0, -len * 0.06, 0]);
   }
 
-  /* ---- Çizmeler: ayak ileriye (+Z) uzanır ---- */
+  /* ---- Çizmeler ---- */
   for (const side of ['L', 'R']) {
     const g = new THREE.Group();
-    const f = Math.max(dim.foot, dim.shin * 0.24);
-    g.add(mesh(plate(f * 1.0, f * 0.72, f * 2.0, 0.15), M.leather, 0, f * 0.30, f * 0.42));
-    g.add(mesh(plate(f * 1.05, f * 0.26, f * 2.1, 0.1), M.gold, 0, f * 0.02, f * 0.42));
+    // Ölçüler ayak kemiğinden: bilek yüksekliği ve bilekten parmağa mesafe.
+    const ankle = dim.footAnkle ?? 0.09;      // bileğin yerden yüksekliği
+    const fwdLen = dim.footFwd ?? 0.13;       // bilekten parmak ucuna
+    const w = Math.max(dim.shin * 0.30, fwdLen * 0.78);
+    const heel = fwdLen * 0.62;
+    const len = fwdLen * 1.75 + heel;
+    const zc = (fwdLen * 1.30 - heel) / 2;    // gövde merkezi
+
+    // Ayağı yerden bileğe kadar tümüyle saran gövde
+    g.add(mesh(plate(w * 1.20, ankle * 1.25, len, 0.12), M.leather, 0, ankle * 0.48, fwd * zc));
+    // Taban
+    g.add(mesh(plate(w * 1.26, ankle * 0.30, len * 1.04, 0.08), M.dark, 0, -ankle * 0.02, fwd * zc));
+    // Bilek üstü konç
+    g.add(mesh(new THREE.CylinderGeometry(w * 0.62, w * 0.55, ankle * 0.95, 8),
+      M.leather, 0, ankle * 1.20, 0));
+    // Altın burun bandı
+    g.add(mesh(plate(w * 1.16, ankle * 0.30, fwdLen * 0.22, 0.2), M.gold,
+      0, ankle * 0.55, fwd * fwdLen * 1.14));
     add('boot' + side, 'foot' + side, g, [0, 0, 0]);
   }
 
@@ -168,8 +215,8 @@ export function buildArmorSet(theme, dim, pos) {
     const w = Math.max(dim.hipWidth * 2.1, sw * 0.78);
     const h = dim.thigh * 0.66;
     const spec = [
-      { ry: 0, z: w * 0.36, x: 0, pw: w * 0.74 },
-      { ry: Math.PI, z: -w * 0.36, x: 0, pw: w * 0.74 },
+      { ry: 0, z: fwd * w * 0.36, x: 0, pw: w * 0.74 },
+      { ry: Math.PI, z: -fwd * w * 0.36, x: 0, pw: w * 0.74 },
       { ry: Math.PI / 2, z: 0, x: w * 0.44, pw: w * 0.56 },
       { ry: -Math.PI / 2, z: 0, x: -w * 0.44, pw: w * 0.56 },
     ];
@@ -183,7 +230,7 @@ export function buildArmorSet(theme, dim, pos) {
       g.add(panel);
     }
     g.add(mesh(plate(w * 0.98, h * 0.15, w * 0.74, 0.12), M.leather, 0, h * 0.04, 0));
-    g.add(mesh(plate(w * 0.26, h * 0.18, w * 0.10, 0.3), M.gold, 0, h * 0.04, w * 0.38));
+    g.add(mesh(plate(w * 0.26, h * 0.18, w * 0.10, 0.3), M.gold, 0, h * 0.04, fwd * w * 0.38));
     // Kemer, kalça kemiğinin biraz üstünde
     add('tassets', 'hips', g, [0, dim.torso * 0.06, 0]);
   }
@@ -191,13 +238,26 @@ export function buildArmorSet(theme, dim, pos) {
   /* ---- Miğfer ---- */
   {
     const g = new THREE.Group();
+    /*
+     * Açık miğfer: kubbe yalnızca kafanın üstünü örtüyor, alın bandı ve yan
+     * plakalar yüzü çerçeveliyor. Kapalı miğfer kafayı bütünüyle yutup
+     * karakteri yüzsüz bırakıyordu.
+     */
     const r = dim.head;
-    const cap = dome(r * 1.10, 0.60, 16);
-    cap.scale(1, 1.08, 1);
-    g.add(mesh(cap, M.plate, 0, 0, 0));
-    g.add(mesh(new THREE.CylinderGeometry(r * 1.12, r * 1.12, r * 0.28, 16), M.gold, 0, -r * 0.06, 0));
-    g.add(mesh(plate(r * 0.68, r * 0.40, r * 0.20, 0.35), M.gold, 0, r * 0.04, r * 1.02));
-    g.add(mesh(new THREE.ConeGeometry(r * 0.20, r * 0.85, 6), M.gold, 0, r * 1.10, 0));
+    const cap = dome(r * 1.08, 0.42, 16);
+    cap.scale(1, 1.05, 1);
+    g.add(mesh(cap, M.plate, 0, r * 0.10, 0));
+    // Alın bandı
+    g.add(mesh(new THREE.CylinderGeometry(r * 1.10, r * 1.10, r * 0.30, 16), M.gold, 0, r * 0.16, 0));
+    // Yanaklık plakaları
+    for (const s2 of [-1, 1]) {
+      g.add(mesh(plate(r * 0.24, r * 0.85, r * 0.70, 0.25), M.plate,
+        s2 * r * 0.98, -r * 0.30, fwd * r * 0.10));
+    }
+    // Ense koruması
+    g.add(mesh(plate(r * 1.5, r * 0.60, r * 0.22, 0.25), M.plate, 0, -r * 0.25, -fwd * r * 1.00));
+    // Tepelik
+    g.add(mesh(new THREE.ConeGeometry(r * 0.17, r * 0.75, 6), M.gold, 0, r * 0.95, 0));
     /*
      * Kafa kemiği boynun tepesinde; kafa hacmi onun üstünde. Miğferi kemiğin
      * hemen üstüne koymak onu yüzün önüne indiriyordu, bu yüzden ölçülen kafa
@@ -206,26 +266,40 @@ export function buildArmorSet(theme, dim, pos) {
     add('helmet', 'head', g, [0, (dim.headHeight ?? r * 2) * 0.60, 0]);
   }
 
-  /* ---- Pelerin: omuzlardan arkaya ---- */
+  /* ---- Sırt pelerini ---- */
   {
+    /*
+     * Eskisi gövde genişliğinde, dize kadar inen düz bir levhaydı ve
+     * siluetin tamamını yutuyordu. Yenisi omuzlarda dar başlayıp aşağı
+     * doğru açılan, bel hizasında biten kısa bir pelerin.
+     */
     const g = new THREE.Group();
-    const w = sw * 1.15;
-    const h = dim.torso * 1.30;
-    const geo = new THREE.PlaneGeometry(w, h, 2, 4);
-    geo.translate(0, -h * 0.5, 0);
-    geo.rotateX(-0.12);
+    const wTop = sw * 0.62;
+    const wBot = sw * 0.92;
+    const h = dim.torso * 0.78;
+    const geo = new THREE.BufferGeometry();
+    const hw1 = wTop / 2, hw2 = wBot / 2;
+    const bulge = h * 0.10;                 // hafif dışa kavis
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([
+      -hw1, 0, 0, hw1, 0, 0,
+      -hw2, -h, -bulge, hw2, -h, -bulge,
+    ], 3));
+    geo.setIndex([0, 2, 1, 1, 2, 3]);
+    geo.computeVertexNormals();
     g.add(mesh(geo, new THREE.MeshLambertMaterial({
       color: M.cloth.color, side: THREE.DoubleSide,
-    }), 0, 0, 0));
-    add('cape', 'chest', g, [0, (neckY - chestY) * 0.85, -sw * 0.36]);
+    })));
+    // Omuz bağlantısı
+    g.add(mesh(plate(wTop * 1.1, h * 0.07, sw * 0.10, 0.25), M.gold, 0, 0, 0));
+    add('cape', 'chest', g, [0, (neckY - chestY) * 0.78, -fwd * sw * 0.30]);
   }
 
   /* ---- Çift el kılıç: kabza avuçta, namlu yukarı ---- */
   {
     const g = new THREE.Group();
     const u = dim.foreArm;
-    const grip = u * 1.45;
-    const blade = u * 4.6;
+    const grip = u * 1.30;
+    const blade = u * 3.6;
     g.add(mesh(new THREE.CylinderGeometry(u * 0.13, u * 0.15, grip, 8), M.leather, 0, grip * 0.5, 0));
     for (let i = 0; i < 4; i++) {
       g.add(mesh(new THREE.TorusGeometry(u * 0.15, u * 0.04, 5, 10).rotateX(Math.PI / 2),
@@ -262,10 +336,62 @@ export function buildArmorSet(theme, dim, pos) {
   return out;
 }
 
+/**
+ * Yüz ve saç.
+ *
+ * Taban gövde dokusuz ve yüzsüz geliyor: kafa düz bir yumurta olarak
+ * kalıyor ve karakter bu yüzden cansız görünüyor. Gözler, kaşlar ve saç
+ * ayrı parçalar olarak kafa kemiğine takılıyor.
+ *
+ * @param {object} dim  kemiklerden ölçülen boyutlar
+ * @param {object} [o]  { hair, skin }
+ */
+export function buildFace(dim, o = {}) {
+  const hairColor = o.hair ?? 0x2b2018;
+  const fwd = dim.forward ?? 1;             // modelin ileri yönü
+  const g = new THREE.Group();
+  const r = dim.head;                       // kafa yarıçapı
+  const cy = (dim.headHeight ?? r * 2) * 0.50;   // kafa merkezi, kemiğe göre
+
+  const hairMat = new THREE.MeshLambertMaterial({ color: hairColor });
+  const eyeMat = new THREE.MeshLambertMaterial({ color: 0x241a12 });
+  const whiteMat = new THREE.MeshLambertMaterial({ color: 0xe8e2d6 });
+
+  // Saç: kafanın arkasını ve üstünü örten kabuk
+  const cap = new THREE.SphereGeometry(r * 1.06, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.58);
+  cap.scale(1, 1.02, 1.04);
+  g.add(mesh(cap, hairMat, 0, cy + r * 0.10, 0));
+  // Enseye inen saç kütlesi
+  g.add(mesh(plate(r * 1.15, r * 1.05, r * 0.70, 0.30), hairMat, 0, cy - r * 0.10, -fwd * r * 0.62));
+  // Topuz (Metin2 savaşçısının imzası)
+  g.add(mesh(new THREE.SphereGeometry(r * 0.42, 10, 8), hairMat, 0, cy + r * 1.16, -fwd * r * 0.24));
+  g.add(mesh(new THREE.CylinderGeometry(r * 0.14, r * 0.14, r * 0.55, 6),
+    new THREE.MeshLambertMaterial({ color: 0x8a6f31 }), 0, cy + r * 0.92, -fwd * r * 0.22));
+
+  // Gözler: beyaz + koyu bebek
+  for (const s of [-1, 1]) {
+    const eye = new THREE.SphereGeometry(r * 0.17, 8, 7);
+    eye.scale(1, 0.72, 0.55);
+    g.add(mesh(eye, whiteMat, s * r * 0.36, cy + r * 0.06, fwd * r * 0.86));
+    g.add(mesh(new THREE.SphereGeometry(r * 0.085, 7, 6), eyeMat,
+      s * r * 0.38, cy + r * 0.05, fwd * r * 0.94));
+    // Kaş
+    const brow = plate(r * 0.40, r * 0.09, r * 0.12, 0.3);
+    brow.rotateZ(s * -0.16);
+    g.add(mesh(brow, hairMat, s * r * 0.37, cy + r * 0.33, fwd * r * 0.88));
+  }
+  // Ağız çizgisi
+  g.add(mesh(plate(r * 0.38, r * 0.055, r * 0.10, 0.3),
+    new THREE.MeshLambertMaterial({ color: 0x8a5a48 }), 0, cy - r * 0.45, fwd * r * 0.86));
+
+  return { piece: g, joint: 'head', offset: [0, 0, 0] };
+}
+
 /** Zırh slotu -> takılacağı eklem (varsayılan eşleme). */
 export const ARMOR_SLOTS = {
   chest: 'chest',
   pauldronL: 'armL', pauldronR: 'armR',
+  sleeveL: 'armL', sleeveR: 'armR',
   bracerL: 'foreArmL', bracerR: 'foreArmR',
   thighGuardL: 'thighL', thighGuardR: 'thighR',
   greaveL: 'shinL', greaveR: 'shinR',

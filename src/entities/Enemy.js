@@ -148,18 +148,29 @@ export class Enemy {
     }
 
     // Boyun ve kafa
-    const neck = this._joint('neck', core, 0, bodyH * 0.22, bodyLen * 0.48);
-    neck.add(part(blob(0.34, 0.34, 0.34), M.body, 0, 0, 0.1));
+    const neck = this._joint('neck', core, 0, bodyH * 0.20, bodyLen * 0.44);
+    // Boynu gövdeye bağlayan konik geçiş: kafa havada durmasın
+    neck.add(part(new THREE.CylinderGeometry(0.20, 0.30, 0.34, 8).rotateX(Math.PI / 2),
+      M.body, 0, 0.02, 0.10));
+    neck.add(part(new THREE.SphereGeometry(0.21, 10, 8), M.body, 0, 0.02, 0.20));
     const head = this._joint('head', neck, 0, 0.06, 0.26);
-    head.add(part(blob(0.34, 0.32, 0.40), M.body, 0, 0, 0.12));
-    // Burun
-    head.add(part(blob(isBoar ? 0.26 : 0.20, isBoar ? 0.22 : 0.18, 0.28), M.belly, 0, -0.05, 0.36));
+    head.add(part(blob(0.32, 0.30, 0.38), M.body, 0, 0, 0.12));
+    // Uzun burun/suratlık
+    head.add(part(blob(isBoar ? 0.27 : 0.19, isBoar ? 0.23 : 0.17, isBoar ? 0.30 : 0.36),
+      M.body, 0, -0.05, isBoar ? 0.38 : 0.42));
+    // Burun ucu: küçük, yoksa gözleri kapatan siyah bir top gibi duruyor
+    head.add(part(new THREE.SphereGeometry(0.040, 8, 6), M.dark, 0, -0.04,
+      isBoar ? 0.54 : 0.61));
     if (isBoar) {
       // Dişler
+      // Dişler: burnun iki yanından yukarı kıvrılan küçük fildişleri.
+      // Öncekiler kocaman turuncu koni gibi duruyordu.
       for (const s of [-1, 1]) {
-        const tusk = new THREE.ConeGeometry(0.035, 0.26, 5);
-        tusk.rotateX(-0.9);
-        head.add(part(tusk, M.eye, s * 0.10, -0.02, 0.46));
+        const tusk = new THREE.ConeGeometry(0.028, 0.17, 6);
+        tusk.rotateZ(s * 0.30);
+        tusk.rotateX(-0.45);
+        head.add(part(tusk, new THREE.MeshLambertMaterial({ color: 0xe8e0cc }),
+          s * 0.13, -0.05, 0.44));
       }
     } else {
       // Kulaklar
@@ -168,23 +179,34 @@ export class Enemy {
         head.add(part(ear, M.dark, s * 0.12, 0.20, 0.02));
       }
     }
+    // Gözler: küçük, göz akı + bebek
     for (const s of [-1, 1]) {
-      head.add(part(new THREE.SphereGeometry(0.036, 6, 5), M.eye, s * 0.11, 0.06, 0.30));
+      head.add(part(new THREE.SphereGeometry(0.038, 8, 6), M.eye, s * 0.118, 0.09, 0.24));
+      head.add(part(new THREE.SphereGeometry(0.018, 6, 5), M.dark, s * 0.126, 0.09, 0.27));
     }
 
-    // Bacaklar: ön/arka × sol/sağ
+    /*
+     * Bacaklar: ön/arka × sol/sağ. Önceki sürümde ince silindirlerdi ve
+     * gövdeye değmedikleri için hayvan "masa" gibi görünüyordu; artık
+     * kalçadan bileğe incelen kalın koniler ve omuz/kalça yuvarlaması var.
+     */
     const legs = [
-      ['FL', -1, bodyLen * 0.34], ['FR', 1, bodyLen * 0.34],
-      ['BL', -1, -bodyLen * 0.34], ['BR', 1, -bodyLen * 0.34],
+      ['FL', -1, bodyLen * 0.32], ['FR', 1, bodyLen * 0.32],
+      ['BL', -1, -bodyLen * 0.32], ['BR', 1, -bodyLen * 0.32],
     ];
-    const upperLen = hipY * 0.5, lowerLen = hipY * 0.44;
+    const upperLen = hipY * 0.50, lowerLen = hipY * 0.42;
+    const legX = isBoar ? 0.28 : 0.23;
     for (const [id, side, z] of legs) {
-      const hip = this._joint('leg' + id, core, side * (isBoar ? 0.30 : 0.24), -bodyH * 0.35, z);
-      hip.add(part(new THREE.CylinderGeometry(0.09, 0.075, upperLen, 6), M.body, 0, -upperLen / 2, 0));
+      // Gövdeye kaynak omuz/kalça yuvarlaması
+      core.add(part(new THREE.SphereGeometry(0.155, 8, 6), M.body,
+        side * legX, -bodyH * 0.30, z));
+      const hip = this._joint('leg' + id, core, side * legX, -bodyH * 0.32, z);
+      hip.add(part(new THREE.CylinderGeometry(0.145, 0.105, upperLen, 8), M.body, 0, -upperLen / 2, 0));
       const knee = this._joint('knee' + id, hip, 0, -upperLen, 0);
-      knee.add(part(new THREE.CylinderGeometry(0.065, 0.055, lowerLen, 6), M.body, 0, -lowerLen / 2, 0));
+      knee.add(part(new THREE.SphereGeometry(0.10, 8, 6), M.body, 0, 0, 0));
+      knee.add(part(new THREE.CylinderGeometry(0.098, 0.072, lowerLen, 8), M.body, 0, -lowerLen / 2, 0));
       const foot = this._joint('foot' + id, knee, 0, -lowerLen, 0);
-      foot.add(part(blob(0.14, 0.09, 0.20, 0.3), M.dark, 0, -0.03, 0.03));
+      foot.add(part(blob(0.17, 0.11, 0.24, 0.3), M.dark, 0, -0.04, 0.04));
     }
     this.legIds = ['FL', 'FR', 'BL', 'BR'];
     this.legLengths = { upper: upperLen, lower: lowerLen };
@@ -201,25 +223,41 @@ export class Enemy {
     const M = this.mats;
     const hipY = 0.92;
     const hips = this._joint('core', this.root, 0, hipY, 0);
-    hips.add(part(blob(0.38, 0.22, 0.24), M.body, 0, 0, 0));
-    const chest = this._joint('chest', hips, 0, 0.30, 0);
-    chest.add(part(blob(0.46, 0.42, 0.28), M.body, 0, 0, 0));
-    chest.add(part(blob(0.34, 0.20, 0.30, 0.3), M.belly, 0, -0.12, 0.02));
-    const head = this._joint('head', chest, 0, 0.34, 0);
-    head.add(part(blob(0.26, 0.28, 0.26, 0.3), M.belly, 0, 0.02, 0));
-    head.add(part(blob(0.28, 0.12, 0.28, 0.35), M.dark, 0, 0.14, 0));   // bandana
+    hips.add(part(blob(0.40, 0.26, 0.26), M.body, 0, 0, 0));
+    const chest = this._joint('chest', hips, 0, 0.28, 0);
+    chest.add(part(blob(0.48, 0.44, 0.30), M.body, 0, 0, 0));
+    // Deri yelek ve kemer
+    chest.add(part(blob(0.50, 0.30, 0.32, 0.28), M.dark, 0, 0.04, 0));
+    chest.add(part(blob(0.36, 0.22, 0.32, 0.3), M.belly, 0, -0.10, 0.03));
+    hips.add(part(blob(0.44, 0.09, 0.30, 0.2), M.dark, 0, 0.10, 0));
+    // Boyun: kafa gövdeden kopuk durmasın
+    chest.add(part(new THREE.CylinderGeometry(0.085, 0.11, 0.14, 8), M.belly, 0, 0.26, 0));
+    const head = this._joint('head', chest, 0, 0.36, 0);
+    const skull = new THREE.SphereGeometry(0.155, 12, 10);
+    skull.scale(1, 1.08, 1.02);
+    head.add(part(skull, M.belly, 0, 0.02, 0));
+    head.add(part(blob(0.20, 0.11, 0.16, 0.3), M.belly, 0, -0.06, 0.10));  // çene
+    // Bandana ve saç
+    head.add(part(new THREE.CylinderGeometry(0.163, 0.163, 0.075, 12), M.dark, 0, 0.09, 0));
+    head.add(part(new THREE.SphereGeometry(0.158, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.45),
+      new THREE.MeshLambertMaterial({ color: 0x2a1f16 }), 0, 0.04, 0));
     for (const s of [-1, 1]) {
-      head.add(part(new THREE.SphereGeometry(0.03, 6, 5), M.eye, s * 0.07, 0.02, 0.13));
+      head.add(part(new THREE.SphereGeometry(0.026, 7, 6),
+        new THREE.MeshLambertMaterial({ color: 0xe8e2d6 }), s * 0.058, 0.015, 0.135));
+      head.add(part(new THREE.SphereGeometry(0.013, 6, 5), M.dark, s * 0.062, 0.015, 0.150));
     }
 
     for (const side of [-1, 1]) {
       const S = side < 0 ? 'L' : 'R';
-      const sh = this._joint('arm' + S, chest, side * 0.28, 0.14, 0);
-      sh.add(part(new THREE.CylinderGeometry(0.06, 0.05, 0.30, 6), M.body, 0, -0.15, 0));
+      // Omuz yuvarlaması: kol gövdeden kopuk başlamasın
+      chest.add(part(new THREE.SphereGeometry(0.105, 8, 6), M.body, side * 0.25, 0.13, 0));
+      const sh = this._joint('arm' + S, chest, side * 0.25, 0.12, 0);
+      sh.add(part(new THREE.CylinderGeometry(0.088, 0.070, 0.30, 8), M.body, 0, -0.15, 0));
       const fore = this._joint('fore' + S, sh, 0, -0.30, 0);
-      fore.add(part(new THREE.CylinderGeometry(0.05, 0.045, 0.28, 6), M.belly, 0, -0.14, 0));
+      fore.add(part(new THREE.SphereGeometry(0.072, 8, 6), M.belly, 0, 0, 0));
+      fore.add(part(new THREE.CylinderGeometry(0.070, 0.055, 0.28, 8), M.belly, 0, -0.14, 0));
       const hand = this._joint('hand' + S, fore, 0, -0.28, 0);
-      hand.add(part(blob(0.08, 0.09, 0.07, 0.3), M.dark, 0, -0.04, 0));
+      hand.add(part(blob(0.095, 0.10, 0.085, 0.3), M.dark, 0, -0.05, 0));
       if (side > 0) {
         // Sağ elde sopa
         const club = new THREE.Group();
@@ -233,12 +271,14 @@ export class Enemy {
     const upperLen = 0.44, lowerLen = 0.40;
     for (const side of [-1, 1]) {
       const S = side < 0 ? 'L' : 'R';
-      const hip = this._joint('leg' + S, hips, side * 0.13, -0.10, 0);
-      hip.add(part(new THREE.CylinderGeometry(0.085, 0.07, upperLen, 6), M.body, 0, -upperLen / 2, 0));
+      hips.add(part(new THREE.SphereGeometry(0.115, 8, 6), M.body, side * 0.13, -0.07, 0));
+      const hip = this._joint('leg' + S, hips, side * 0.13, -0.08, 0);
+      hip.add(part(new THREE.CylinderGeometry(0.115, 0.088, upperLen, 8), M.body, 0, -upperLen / 2, 0));
       const knee = this._joint('knee' + S, hip, 0, -upperLen, 0);
-      knee.add(part(new THREE.CylinderGeometry(0.065, 0.055, lowerLen, 6), M.body, 0, -lowerLen / 2, 0));
+      knee.add(part(new THREE.SphereGeometry(0.085, 8, 6), M.body, 0, 0, 0));
+      knee.add(part(new THREE.CylinderGeometry(0.082, 0.062, lowerLen, 8), M.body, 0, -lowerLen / 2, 0));
       const foot = this._joint('foot' + S, knee, 0, -lowerLen, 0);
-      foot.add(part(blob(0.11, 0.08, 0.22, 0.3), M.dark, 0, -0.03, 0.05));
+      foot.add(part(blob(0.125, 0.095, 0.24, 0.3), M.dark, 0, -0.04, 0.05));
     }
     this.legIds = ['L', 'R'];
     this.legLengths = { upper: upperLen, lower: lowerLen };

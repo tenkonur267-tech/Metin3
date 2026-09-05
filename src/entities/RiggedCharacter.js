@@ -24,7 +24,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../../vendor/three/jsm/loaders/GLTFLoader.js';
 import { Warrior, JOINTS } from './Warrior.js';
-import { buildArmorSet, ARMOR_SLOTS } from './ArmorSet.js';
+import { buildArmorSet, buildFace, ARMOR_SLOTS } from './ArmorSet.js';
 
 /** Poz eklemi -> kemik adı. Ad temizliği (nokta vb.) sonradan uygulanır. */
 const DEFAULT_BONE_MAP = {
@@ -63,19 +63,23 @@ export class RiggedCharacter {
     this.model = scene;
     this.gltf = gltf;
 
+    // Ekipman haritası kurulum adımlarından önce hazır olmalı: yüz de
+    // equip() üzerinden takılıyor.
+    this.equipment = new Map();
+
     this._collectBones();
     this._mapJoints();
     this._applySkin();
     this._fitScale();
+    this._measureFrame();
     this._bindDriver();
     this._measure();
+    this._addFace();
 
     /* -- Durum: sürücüden yansıtılır -- */
     this.state = this.driver.state;
     this.stateTime = 0;
     this.durations = this.driver.durations;
-
-    this.equipment = new Map();
     this.height = cfg.height ?? 1.95;
   }
 
@@ -105,6 +109,58 @@ export class RiggedCharacter {
       console.warn('[rig] eşleşmeyen eklemler:', missing.join(', '));
     }
     this.mappedJoints = JOINTS.filter((j) => this.j[j]);
+  }
+
+  /**
+   * Modelin dinlenme eksen tabanını ölçer.
+   *
+   * Zırh karakter uzayında yazılıyor (X sağ, Y yukarı, Z ileri) ama riglerin
+   * dinlenme ekseni dışa aktarıma göre değişiyor: bu taban gövdede "sağ"
+   * ekseni +Z, "ileri" ekseni +X çıkıyor.
+   *
+   * Modeli döndürerek düzeltmeye çalışmak işe yaramıyor, çünkü kemik
+   * konumları modelin kendi yerel uzayında ölçülüyor ve modelin dönüşü o
+   * uzayı değiştirmiyor; her şey birlikte dönüp aynı yanlış kalıyor. Onun
+   * yerine burada ölçülen taban, ekipman takılırken karakter uzayından
+   * model uzayına çevirmek için kullanılıyor.
+   */
+  _measureFrame() {
+    this.model.updateMatrixWorld(true);
+    const mq = this.model.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const mp = this.model.getWorldPosition(new THREE.Vector3());
+    const local = (o) => o.getWorldPosition(new THREE.Vector3())
+      .sub(mp).applyQuaternion(mq);
+
+    const up = new THREE.Vector3(0, 1, 0);
+    let fwd = null;
+
+    // İleri yön: ayak parmağı bileğin önündedir — en güvenilir gösterge
+    const toe = this.bones.get('toel') || this.bones.get('toe_l');
+    if (toe && this.j.footL) {
+      const v = local(toe).sub(local(this.j.footL));
+      v.y = 0;
+      if (v.lengthSq() > 1e-8) fwd = v.normalize();
+    }
+    // Yedek: omuz ekseninden dik yön
+    if (!fwd && this.j.armL && this.j.armR) {
+      const r = local(this.j.armR).sub(local(this.j.armL));
+      r.y = 0;
+      if (r.lengthSq() > 1e-8) fwd = new THREE.Vector3().crossVectors(r.normalize(), up).normalize();
+    }
+    if (!fwd) fwd = new THREE.Vector3(0, 0, 1);
+
+    /*
+     * Sağ ekseni omuzlardan ölçmeyi denemiştim, ama bu rigde omuz kemiği
+     * adları geometriye göre aynalı: ölçülen taban sol el düzeninde çıkıyor
+     * (determinant -1) ve böyle bir matristen quaternion çıkarmak bozuk
+     * dönüş üretiyor. Sağ ekseni ileri ve yukarıdan türetmek tabanın daima
+     * sağ el düzeninde olmasını garantiliyor.
+     */
+    const right = new THREE.Vector3().crossVectors(up, fwd).normalize();
+
+    const m = new THREE.Matrix4().makeBasis(right, up, fwd);
+    this.frameQ = new THREE.Quaternion().setFromRotationMatrix(m);
+    this.frameAxes = { right, up: up.clone(), fwd };
   }
 
   /**
@@ -209,8 +265,42 @@ export class RiggedCharacter {
     const headHeight = Math.max((bbox.max.y - headBoneY) * inv, 0.16);
     const head = headHeight * 0.46;
 
+    /*
+     * Ayak ölçüleri çizme için: bilek yüksekliği ve bilekten parmağa mesafe.
+     * Bunları tahmin etmek çizmeyi ayağın üstünde havada bırakıyordu.
+     */
+    const footBone = this.j.footL;
+    const toeBone = this.bones.get('toel') || this.bones.get('toe_l');
+    let footAnkle = 0.09, footFwd = 0.13, forward = 1;
+    if (footBone) {
+      // Bilek yüksekliği modelin tabanına göre; restP modelin orijinine göre
+      // olduğu için doğrudan kullanmak 2 cm gibi anlamsız bir değer veriyordu.
+      const fp = this.restP.footL;
+      if (fp) footAnkle = Math.max(fp.y - bbox.min.y * inv, 0.03);
+      if (toeBone) {
+        const modelInv2 = this.model.getWorldQuaternion(new THREE.Quaternion()).invert();
+        const modelPos2 = this.model.getWorldPosition(new THREE.Vector3());
+        const toLocal = (o) => o.getWorldPosition(new THREE.Vector3())
+          .sub(modelPos2).applyQuaternion(modelInv2).divideScalar(this.modelScale || 1);
+        const tp = toLocal(toeBone);
+        const fpL = toLocal(footBone);
+        footFwd = Math.max(tp.distanceTo(fpL), 0.05);
+        void tp; void fpL;
+        /*
+         * İleri yön: _alignRestFrame sağ ekseni +X'e getirdiği ve yukarı
+         * +Y olduğu için sağ el kuralıyla ileri +Z olur. Ayak parmağından
+         * çıkarmayı denemiştim ama bu rigde parmak kemiği bileğin neredeyse
+         * tam altında duruyor ve işaret güvenilir çıkmıyor.
+         */
+        forward = 1;
+      }
+    }
+
     this.dim = {
       torso,
+      footAnkle,
+      footFwd,
+      forward,
       chest: len('chest') || torso * 0.25,
       upperArm: len('armL') || 0.33,
       foreArm: len('foreArmL') || 0.24,
@@ -223,6 +313,12 @@ export class RiggedCharacter {
       shoulderWidth: gap('armL', 'armR') || 0.36,
       hipWidth: gap('thighL', 'thighR') || 0.20,
     };
+  }
+
+  /** Yüz ve saç: zırhtan bağımsız, çıkarılmıyor. */
+  _addFace() {
+    const face = buildFace(this.dim, this.cfg.face || {});
+    this.equip('face', face.piece, face.joint, face.offset);
   }
 
   /* ---------------- Ekipman ---------------- */
@@ -254,6 +350,9 @@ export class RiggedCharacter {
     this.weaponBase = this.weaponTip = null;
   }
 
+  /** Zırhsız (çıplak) görünüm — ekipman sistemi için. */
+  get isBare() { return this.equipment.size <= 1; }
+
 
   /**
    * Bir zırh parçasını kemiğe takar.
@@ -275,10 +374,13 @@ export class RiggedCharacter {
     if (!bone) { console.warn('[rig] ekipman için kemik yok:', joint); return null; }
 
     const inv = (this.restQ[joint] || new THREE.Quaternion()).clone().invert();
-    piece.quaternion.copy(inv);
+    const frame = this.frameQ || new THREE.Quaternion();
+    // Parça karakter uzayında yazıldı: önce modelin eksen tabanına, sonra
+    // kemiğin yerel uzayına çevir.
+    piece.quaternion.copy(inv).multiply(frame);
     if (offset) {
       const v = Array.isArray(offset) ? new THREE.Vector3(...offset) : offset.clone();
-      piece.position.copy(v.applyQuaternion(inv));
+      piece.position.copy(v.applyQuaternion(frame).applyQuaternion(inv));
     }
     bone.add(piece);
     this.equipment.set(slot, { piece, bone });
