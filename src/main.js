@@ -19,6 +19,9 @@ import { SwordTrail } from './entities/SwordTrail.js';
 import { HUD } from './ui/HUD.js';
 import { KingdomSelect } from './ui/KingdomSelect.js';
 import { Combat } from './systems/Combat.js';
+import { Inventory } from './systems/Inventory.js';
+import { InventoryUI } from './ui/InventoryUI.js';
+import { starterItems } from './data/items.js';
 import { FloatingText } from './ui/FloatingText.js';
 import { KINGDOMS } from './data/kingdoms.js';
 
@@ -39,8 +42,16 @@ class Game {
     // Karakter durumu
     this.stats = {
       level: 1, hp: 320, hpMax: 320, mp: 120, mpMax: 120, xp: 0, xpMax: 1000,
-      attack: 34, critChance: 0.15, critMult: 1.8,
+      // Saldırı = seviyeden gelen taban + kuşanılan ekipman
+      tabanSaldiri: 34, attack: 34, defense: 0,
+      critChance: 0.15, critMult: 1.8,
     };
+
+    // Çanta ve ekipman
+    this.inventory = new Inventory({ gozSayisi: 30 });
+    this.inventoryUI = new InventoryUI(document.getElementById('hud'), this.inventory);
+    this.inventoryUI.onMesaj = (m) => this.hud.toast(m);
+    this.inventory.subscribe(() => this._ekipmanUygula());
 
     this.select.onStart((k) => this.start(k));
     document.getElementById('hud').style.display = 'none';
@@ -175,6 +186,13 @@ class Game {
     this.controller.onSkillFail = (sk) => this.hud.toast(`${sk.name}: yeterli mana yok`);
     this.controller.teleport(village.spawn.x, village.spawn.z, village.spawnFacing);
 
+    // Başlangıç donanımı: oyuncu çıplak başlamasın
+    for (const it of starterItems()) {
+      const i = this.inventory.ekle(it);
+      if (i >= 0) this.inventory.kusan(i);
+    }
+    this.hud.el.bag.addEventListener('click', () => this.inventoryUI.degistir());
+    this.combat.onLoot = (item) => this._esyaTopla(item);
     this.combat.onPlayerDamaged = (dmg, from) => this._takeDamage(dmg, from);
     this.combat.onLevelUp = () => {
       this.hud.setCharacter({ name: 'Savaşçı', level: this.stats.level, kingdom });
@@ -244,6 +262,26 @@ class Game {
 
     this.input.endFrame();
   };
+
+  /**
+   * Kuşanılan ekipmanı karaktere ve istatistiklere yansıtır.
+   * Envanter her değiştiğinde çağrılır.
+   */
+  _ekipmanUygula() {
+    if (!this.player) return;
+    const t = this.inventory.toplam();
+    // Taban değerler seviyeden gelir; ekipman üstüne eklenir
+    this.stats.attack = this.stats.tabanSaldiri + t.saldiri;
+    this.stats.defense = t.savunma;
+    this.player.applyEquipmentVisuals?.(this.inventory.gorselEkipman());
+  }
+
+  /** Yerden eşya toplandı. */
+  _esyaTopla(item) {
+    const i = this.inventory.ekle(item);
+    if (i < 0) { this.hud.toast('Çanta dolu — eşya alınamadı'); return; }
+    this.hud.toast(`${item.ad} alındı`);
+  }
 
   /** Canavar vuruşu oyuncuya isabet etti. */
   _takeDamage(amount, from) {

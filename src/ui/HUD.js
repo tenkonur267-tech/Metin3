@@ -36,6 +36,7 @@ export class HUD {
       </div>
 
       <div id="minimap-wrap"><canvas id="minimap" width="118" height="118"></canvas></div>
+      <div class="btn" id="btn-bag" title="Envanter">🎒</div>
       <div id="coords"></div>
 
       <div id="zone-banner"><div class="z1"></div><div class="z2"></div></div>
@@ -70,6 +71,7 @@ export class HUD {
       targetPanel: q('#target-panel'),
       targetName: q('#target-name'),
       targetBar: q('.bar.target > i'),
+      bag: q('#btn-bag'),
       attack: q('#btn-attack'),
       jump: q('#btn-jump'),
       skill1: q('#btn-skill1'),

@@ -177,9 +177,16 @@ export class PlayerController {
     let moveX = 0, moveZ = 0;
     const canMove = this.alive && !this.attacking;
     if (canMove && m.mag > 0.08) {
-      // Kameraya göre yön
+      /*
+       * Kameraya göre yön.
+       *
+       * Kamera oyuncunun arkasında, -(sin, cos)·mesafe konumunda duruyor;
+       * dolayısıyla baktığı yön (sin, cos). Ekranın sağı ise bu kurulumda
+       * -(cos, -sin) oluyor. Sağ vektörünü (cos, -sin) diye almak sağa
+       * basıldığında karakteri sola yürütüyordu.
+       */
       const f = _v.set(Math.sin(this.camYaw), 0, Math.cos(this.camYaw));
-      const rgt = _v2.set(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
+      const rgt = _v2.set(-Math.cos(this.camYaw), 0, Math.sin(this.camYaw));
       moveX = f.x * m.y + rgt.x * m.x;
       moveZ = f.z * m.y + rgt.z * m.x;
       const len = Math.hypot(moveX, moveZ);

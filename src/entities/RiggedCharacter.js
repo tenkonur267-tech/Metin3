@@ -350,6 +350,34 @@ export class RiggedCharacter {
     this.weaponBase = this.weaponTip = null;
   }
 
+  /**
+   * Kuşanılan eşyalara göre zırh parçalarını göster/gizle.
+   *
+   * Parçalar bir kez üretilip kemiklere takılı kalıyor; kuşanma yalnızca
+   * görünürlüğü değiştiriyor. Her kuşanmada geometri yeniden üretmek
+   * mobilde gereksiz yük olurdu.
+   *
+   * @param {Object<string, ?object>} gorsel  ArmorSet parça grubu -> eşya
+   */
+  applyEquipmentVisuals(gorsel) {
+    const gruplar = {
+      sword: ['sword'],
+      chest: ['chest', 'tassets', 'pauldronL', 'pauldronR', 'thighGuardL', 'thighGuardR'],
+      helmet: ['helmet'],
+      bracer: ['bracerL', 'bracerR', 'sleeveL', 'sleeveR'],
+      boot: ['bootL', 'bootR', 'greaveL', 'greaveR'],
+      cape: ['cape'],
+    };
+    for (const [anahtar, slotlar] of Object.entries(gruplar)) {
+      const acik = !!gorsel[anahtar];
+      for (const slot of slotlar) {
+        const e = this.equipment.get(slot);
+        if (e) e.piece.visible = acik;
+      }
+    }
+    this.silahVar = !!gorsel.sword;
+  }
+
   /** Zırhsız (çıplak) görünüm — ekipman sistemi için. */
   get isBare() { return this.equipment.size <= 1; }
 
@@ -451,8 +479,8 @@ export class RiggedCharacter {
   /* ---------------- Savaş arayüzü ---------------- */
 
   get isSwinging() {
-    return !!this.weaponTip &&
-      (this.state === 'attack' || this.state === 'spin' || this.state === 'tripleCut');
+    if (!this.weaponTip || this.silahVar === false) return false;
+    return this.state === 'attack' || this.state === 'spin' || this.state === 'tripleCut';
   }
 
   get inDamageWindow() {

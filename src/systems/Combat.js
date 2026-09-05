@@ -13,6 +13,8 @@ import * as THREE from 'three';
 import { MetinStone, METIN_TIERS } from '../entities/MetinStone.js';
 import { Enemy, ENEMY_TYPES } from '../entities/Enemy.js';
 import { HealthBar3D } from '../ui/HealthBar3D.js';
+import { LootDrop } from '../entities/LootDrop.js';
+import { rollDrop } from '../data/items.js';
 import { KINGDOMS } from '../data/kingdoms.js';
 
 const TAU = Math.PI * 2;
@@ -53,6 +55,8 @@ export class Combat {
     this.bars = new Map();  // enemy -> HealthBar3D
 
     this.hitCooldown = new Map();   // hedef -> kalan süre
+    this.drops = [];                // yerde duran eşyalar
+    this.onLoot = null;             // toplanan eşya geri çağrısı
     this.onPlayerDamaged = null;
     this.onLevelUp = null;
     this.lastTarget = null;
@@ -241,6 +245,7 @@ export class Combat {
     } else {
       this._gainXp(target.xpReward);
       this.hud.toast(`${target.name} yenildi  +${target.xpReward} TP`);
+      this._dropLoot(center, Math.max(1, this.stats.level), 0.35);
     }
   }
 
@@ -258,8 +263,33 @@ export class Combat {
       const e = this._spawnEnemy(type, p.x + Math.sin(a) * d, p.z + Math.cos(a) * d);
       e.setState('chase');
     }
+    // Metin taşı daha cömert: birden çok eşya düşürebilir
+    const p2 = stone.group.position;
+    const adet = 1 + Math.floor(Math.random() * stone.level);
+    for (let i = 0; i < adet; i++) {
+      this._dropLoot(_center.set(p2.x, p2.y + 1.0, p2.z),
+        Math.max(1, this.stats.level + stone.level - 1), 0.9);
+    }
+
     // Taş bir süre sonra geri gelsin
     stone.respawnIn = 45;
+  }
+
+  /**
+   * Hedefin bulunduğu yere eşya düşürür.
+   * @param {THREE.Vector3} pos
+   * @param {number} level
+   * @param {number} sans
+   */
+  _dropLoot(pos, level, sans) {
+    const item = rollDrop(level, sans);
+    if (!item) return;
+    const a = Math.random() * TAU;
+    const d = 0.4 + Math.random() * 0.9;
+    const p = new THREE.Vector3(pos.x + Math.sin(a) * d, pos.y, pos.z + Math.cos(a) * d);
+    const drop = new LootDrop(item, p, this.terrain);
+    drop.addTo(this.scene);
+    this.drops.push(drop);
   }
 
   _gainXp(amount) {
@@ -271,7 +301,8 @@ export class Combat {
       s.xpMax = Math.round(s.xpMax * 1.45);
       s.hpMax = Math.round(s.hpMax * 1.16);
       s.mpMax = Math.round(s.mpMax * 1.12);
-      s.attack = Math.round((s.attack ?? 30) * 1.14);
+      s.tabanSaldiri = Math.round((s.tabanSaldiri ?? 30) * 1.14);
+      s.attack = s.tabanSaldiri;
       s.hp = s.hpMax;
       s.mp = s.mpMax;
       this.hud.toast(`Seviye ${s.level}!`);
@@ -287,8 +318,11 @@ export class Combat {
       const d = Math.hypot(playerPos.x - e.pos.x, playerPos.z - e.pos.z);
       if (d > e.attackRange * 1.25) continue;
       e.attackDidHit = true;
-      const dmg = e.damage * (0.85 + Math.random() * 0.3);
-      this.onPlayerDamaged?.(dmg, e);
+      let dmg = e.damage * (0.85 + Math.random() * 0.3);
+      // Savunma hasarı azaltır ama sıfırlamaz
+      const def = this.stats.defense || 0;
+      dmg *= 100 / (100 + def * 2.2);
+      this.onPlayerDamaged?.(Math.max(1, dmg), e);
     }
   }
 
@@ -356,6 +390,15 @@ export class Combat {
         }
         this._removeEnemy(e);
       }
+    }
+
+    /* -- Yerdeki eşyalar -- */
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i];
+      if (!d.update(dt, pos)) continue;
+      if (d.alindi) this.onLoot?.(d.item);
+      d.dispose(this.scene);
+      this.drops.splice(i, 1);
     }
 
     /* -- Hedef bilgisi arayüze -- */
