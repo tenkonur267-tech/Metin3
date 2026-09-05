@@ -623,6 +623,12 @@ html, body {
 }
 .inv-slot.dolu .s-label { color: #d9c79b; }
 
+.inv-action.pasif {
+  opacity: 0.5;
+  border-color: rgba(200, 90, 70, 0.5);
+  color: #e0a898;
+}
+
 .inv-totals {
   display: flex;
   gap: 16px;

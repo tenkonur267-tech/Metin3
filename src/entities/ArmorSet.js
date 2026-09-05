@@ -119,9 +119,31 @@ export function makeContext(theme, dim, pos, kademe = null) {
     if (!h || !b) return [0, 0, 0];
     return [h.x - b.x, 0, h.z - b.z];
   };
+  /*
+   * Avuç merkezi. El kemiği bilekte duruyor, avuç ondan parmaklara doğru
+   * uzanıyor; silahı kemiğe koymak kabzayı bileğin içinde bırakıyordu.
+   * Yön, ön kol -> el doğrultusundan alınıyor.
+   */
+  const elYonu = (() => {
+    const h = pos && pos.handR, f = pos && pos.foreArmR;
+    const v = new THREE.Vector3(0, -1, 0);
+    if (h && f) {
+      const d = new THREE.Vector3(h.x - f.x, h.y - f.y, h.z - f.z);
+      if (d.lengthSq() > 1e-8) v.copy(d.normalize());
+    }
+    return v;
+  })();
+  /**
+   * Silahın kabza aralığının ortasını avuca getiren kaydırma.
+   * @param {number} kabzaOrta  silahın yerel Y'sinde kabza ortası
+   */
+  const avuc = (kabzaOrta) => {
+    const p = elYonu.clone().multiplyScalar((dim.hand ?? 0.12) * 0.66);
+    return [p.x, p.y - kabzaOrta, p.z];
+  };
   return {
     M: makeArmorMaterials(theme, kademe),
-    theme, dim, pos, kademe, eksen,
+    theme, dim, pos, kademe, eksen, elYonu, avuc,
     fwd: dim.forward ?? 1,
     sw: dim.shoulderWidth,
     hipsY: yOf('hips'),
@@ -680,10 +702,45 @@ function shieldKule(c) {
 /* ==================================================================== */
 
 /**
+ * Kavrayan eldiven.
+ *
+ * Taban gövdenin eli açık ve parmakları ayrık; parmak kemiği olmadığı için
+ * yumruk yaptırılamıyor. Silah kabzası açık avucun içinden geçince "eline
+ * oturmuyor" görüntüsü çıkıyordu. Çözüm: silah kuşanınca avucu ve
+ * parmakları saran, kabzayı kavrayan bir eldiven konuyor.
+ *
+ * @param {object} c
+ * @param {number} kabzaR kabza yarıçapı — eldiven bunun üstüne oturur
+ */
+function gripGlove(c, kabzaR) {
+  const { M, dim } = c;
+  const el = dim.hand ?? 0.12;
+  const g = new THREE.Group();
+  // Avuç + parmaklar: açık eli tümüyle örtecek kadar uzun elipsoid
+  const avucGeo = new THREE.SphereGeometry(el * 0.60, 12, 10);
+  avucGeo.scale(0.76, 1.95, 0.66);
+  g.add(mesh(avucGeo, M.leather, 0, 0, 0));
+  // Kabzayı saran parmak boğumları
+  for (let i = 0; i < 3; i++) {
+    const t = new THREE.TorusGeometry(Math.max(kabzaR * 1.5, el * 0.34), el * 0.10, 6, 12)
+      .rotateX(Math.PI / 2);
+    g.add(mesh(t, M.dark, 0, el * (0.34 - i * 0.30), 0));
+  }
+  // Bilek kapağı
+  g.add(mesh(new THREE.CylinderGeometry(el * 0.46, el * 0.42, el * 0.28, 10),
+    M.leatherLight, 0, el * 0.92, 0));
+  g.add(mesh(new THREE.TorusGeometry(el * 0.46, el * 0.07, 6, 12).rotateX(Math.PI / 2),
+    M.gold, 0, el * 1.04, 0));
+  return g;
+}
+
+/**
  * Kabza + iz düğümlerini ekler.
  * Kılıç izi (SwordTrail) namlunun iki ucunu izliyor.
  */
-function weaponNodes(g, grip, uzunluk) {
+function weaponNodes(g, grip, uzunluk, kavrama = null) {
+  // Kavrama aralığı: elin oturması gereken yerel y aralığı (doğrulama için)
+  g.userData.kavrama = kavrama || [0, grip];
   const base = new THREE.Object3D();
   base.position.set(0, grip, 0);
   const tip = new THREE.Object3D();
@@ -710,8 +767,11 @@ function weaponKilic(c) {
   tip.scale(1, 1, 0.4);
   tip.translate(0, grip + blade + u * 0.45, 0);
   g.add(mesh(tip, M.steel));
-  weaponNodes(g, grip + u * 0.2, blade + u * 0.6);
-  return { sword: { piece: g, joint: 'handR', offset: [0, -grip * 0.42, 0] } };
+  weaponNodes(g, grip + u * 0.2, blade + u * 0.6, [0, grip]);
+  return {
+    sword: { piece: g, joint: 'handR', offset: c.avuc(grip * 0.5) },
+    gloveR: { piece: gripGlove(c, u * 0.13), joint: 'handR', offset: c.avuc(0) },
+  };
 }
 
 /** Çift el kılıcı: uzun kabza, geniş namlu, kan oluğu. */
@@ -741,8 +801,11 @@ function weaponBuyuk(c) {
   tip.scale(1, 1, 0.4);
   tip.translate(0, grip + blade + u * 0.60, 0);
   g.add(mesh(tip, M.steel));
-  weaponNodes(g, grip + u * 0.2, blade + u * 0.65);
-  return { sword: { piece: g, joint: 'handR', offset: [0, -grip * 0.42, 0] } };
+  weaponNodes(g, grip + u * 0.2, blade + u * 0.65, [0, grip]);
+  return {
+    sword: { piece: g, joint: 'handR', offset: c.avuc(grip * 0.5) },
+    gloveR: { piece: gripGlove(c, u * 0.14), joint: 'handR', offset: c.avuc(0) },
+  };
 }
 
 /** Savaş baltası: ahşap sap, tek yüzlü ağız ve arkada sivri. */
@@ -772,8 +835,11 @@ function weaponBalta(c) {
   g.add(head);
   // Sapın tepesindeki sivri uç
   g.add(mesh(new THREE.ConeGeometry(u * 0.12, u * 0.55, 6), M.steel, 0, sap + u * 0.25, 0));
-  weaponNodes(g, sap * 0.70, sap * 0.40);
-  return { sword: { piece: g, joint: 'handR', offset: [0, -sap * 0.30, 0] } };
+  weaponNodes(g, sap * 0.70, sap * 0.40, [0, sap * 0.55]);
+  return {
+    sword: { piece: g, joint: 'handR', offset: c.avuc(sap * 0.24) },
+    gloveR: { piece: gripGlove(c, u * 0.12), joint: 'handR', offset: c.avuc(0) },
+  };
 }
 
 /** Ejder mızrağı: uzun sap, yaprak uç, püskül. */
@@ -800,8 +866,11 @@ function weaponMizrak(c) {
     g.add(mesh(plate(u * 0.06, u * 0.55, u * 0.06, 0.3), M.cloth,
       Math.cos(a) * u * 0.12, sap - u * 0.42, Math.sin(a) * u * 0.12));
   }
-  weaponNodes(g, sap * 0.55, sap * 0.50);
-  return { sword: { piece: g, joint: 'handR', offset: [0, -sap * 0.34, 0] } };
+  weaponNodes(g, sap * 0.55, sap * 0.50, [sap * 0.25, sap * 0.60]);
+  return {
+    sword: { piece: g, joint: 'handR', offset: c.avuc(sap * 0.42) },
+    gloveR: { piece: gripGlove(c, u * 0.10), joint: 'handR', offset: c.avuc(0) },
+  };
 }
 
 /* ==================================================================== */
@@ -830,7 +899,7 @@ export const GRUP_SLOTLARI = {
   helmet: ['helmet'],
   cape: ['cape'],
   shield: ['shield'],
-  sword: ['sword'],
+  sword: ['sword', 'gloveR'],
 };
 
 /**
@@ -885,7 +954,7 @@ export function buildDropModel(item, theme = DROP_THEME, boy = 0.42) {
   // Yerdeki model gerçek karakterden bağımsız: sabit, orantılı bir ölçü seti
   const dim = {
     forward: 1, torso: 0.60, head: 0.11, headHeight: 0.24,
-    upperArm: 0.28, foreArm: 0.24, thigh: 0.40, shin: 0.42,
+    upperArm: 0.28, foreArm: 0.24, hand: 0.12, thigh: 0.40, shin: 0.42,
     footAnkle: 0.09, footFwd: 0.13, shoulderWidth: 0.36, hipWidth: 0.20,
   };
   const pos = {
@@ -977,4 +1046,5 @@ export const ARMOR_SLOTS = {
   cape: 'chest',
   shield: 'handL',
   sword: 'handR',
+  gloveR: 'handR',
 };

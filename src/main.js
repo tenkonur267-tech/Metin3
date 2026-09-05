@@ -48,7 +48,12 @@ class Game {
     };
 
     // Çanta ve ekipman
-    this.inventory = new Inventory({ gozSayisi: 30 });
+    /*
+     * Metin2'de bir çanta sayfası 5x9. Otuz göz, taş kırma hızına göre çok
+     * çabuk doluyordu ve dolu çantada ekipman çıkarılamadığı için "çıkardım
+     * ama üstümde duruyor" gibi görünüyordu.
+     */
+    this.inventory = new Inventory({ gozSayisi: 45 });
     this.inventoryUI = new InventoryUI(document.getElementById('hud'), this.inventory);
     this.inventoryUI.onMesaj = (m) => this.hud.toast(m);
     this.inventory.subscribe(() => this._ekipmanUygula());

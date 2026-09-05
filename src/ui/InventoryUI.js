@@ -176,18 +176,38 @@ export class InventoryUI {
              <b class="${cls(dAtk)}">${fmt(dAtk)}</b> sal.
              <b class="${cls(dDef)}">${fmt(dDef)}</b> sav.</span>`);
       }
+      /*
+       * Hedef seçim anında yakalanıyor. Butonun içinden `this.secili`
+       * okumak, envanter değişince arayüz yeniden çizildiği için tıklama
+       * sırası kaydığında null'a düşüyordu.
+       */
+      const index = this.secili.index;
       this._buton(acts, 'Kuşan', () => {
-        this.inv.kusan(this.secili.index);
+        this.inv.kusan(index);
         this.secili = null;
       });
     } else {
-      this._buton(acts, 'Çıkar', () => {
-        if (!this.inv.cikart(this.secili.slot)) {
-          this.onMesaj?.('Çanta dolu');
-          return;
-        }
-        this.secili = null;
-      });
+      /*
+       * Çanta doluyken çıkarma reddediliyor. Eskiden buton normal görünüp
+       * hiçbir şey yapmıyordu; oyuncu eşyayı çıkardığını sanıp karakterde
+       * durmaya devam ettiğini görüyordu. Artık butonun kendisi durumu
+       * söylüyor.
+       */
+      const slot = this.secili.slot;
+      if (this.inv.doluMu) {
+        const b = this._buton(acts, 'Çanta dolu', () => {
+          this.onMesaj?.('Çanta dolu — çıkarmak için önce yer aç');
+        });
+        b.classList.add('pasif');
+      } else {
+        this._buton(acts, 'Çıkar', () => {
+          if (!this.inv.cikart(slot)) {
+            this.onMesaj?.('Çanta dolu — çıkarmak için önce yer aç');
+            return;
+          }
+          this.secili = null;
+        });
+      }
     }
   }
 
@@ -198,6 +218,7 @@ export class InventoryUI {
     b.textContent = ad;
     b.addEventListener('click', () => { fn(); this.yenile(); });
     parent.appendChild(b);
+    return b;
   }
 
   dispose() { this._unsub?.(); this.el.remove(); }
