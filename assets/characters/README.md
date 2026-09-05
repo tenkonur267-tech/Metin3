@@ -65,7 +65,28 @@ Kemik adı verilmezse iz efekti kapatılır. Kemik adlarını konsolda görmek i
 window.game.player.model.traverse(o => o.isBone && console.log(o.name))
 ```
 
-## Depodaki model
+## İki tür model desteği
+
+`warrior.json` içindeki `kind` alanı hangi yolun kullanılacağını belirler:
+
+| `kind` | Ne zaman | Hareket nereden gelir |
+|---|---|---|
+| `animated` (varsayılan) | Model kendi animasyon kliplerini getiriyorsa | Modelin klipleri |
+| `rigged` | Model yalnızca deri ve iskelet getiriyorsa | Oyunun poz kütüphanesi |
+
+`rigged` yolunda karakterin üstüne zırh takılabilir: model çıplak taban gövde
+olarak kalır, ekipman kemiklere ayrı parçalar olarak eklenir.
+
+### Aktarım nasıl çalışıyor
+
+İki iskeletin dinlenme pozları ve kemik eksen düzenleri farklı olduğu için
+açılar doğrudan kopyalanamaz. Bunun yerine prosedürel savaşçı görünmez bir
+sürücü olarak çalıştırılır, her kemik için iki iskeletin dinlenme
+yönelimleri arasındaki fark bir kez ölçülür ve her karede sürücünün ulaştığı
+yönelim bu farkla hedefe taşınır. Yaklaşım kemik adlandırmasından ve eksen
+düzeninden bağımsızdır; farklı bir rig için yalnızca `boneMap` gerekebilir.
+
+## Depodaki modeller
 
 `knight.glb` — KayKit Adventurers Character Pack, Kay Lousberg
 (www.kaylousberg.com), **CC0 1.0** (kamu malı, atıf gerekmez). Lisans metni:
@@ -74,6 +95,11 @@ window.game.player.model.traverse(o => o.isBone && console.log(o.name))
 76 animasyon içeriyor; oyunda kullanılan eşleme `warrior.json` içinde açıkça
 yazılı. Çift el kılıç modelin içinde geliyor, kalkanlar ve tek el kılıç
 `hideNodes` ile gizleniyor.
+
+`base_male.glb` — çıplak taban gövde, 56 kemikli insan rigi, animasyonsuz.
+Orange Juice Games / BoQsc reupload, **CC0 1.0**. Lisans metni:
+`base_male-LICENSE.txt`. Zırh giydirilebilen modüler karakter için taban
+budur; ayarları `base_male.json` içinde hazır duruyor.
 
 Prosedürel savaşçıya dönmek için `warrior.json` içinde `"enabled": false`
 yapmanız yeterli.

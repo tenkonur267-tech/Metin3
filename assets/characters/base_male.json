@@ -1,0 +1,13 @@
+{
+  "_aciklama": [
+    "Çıplak taban gövde: model yalnızca deri ve iskelet getirir, hareket",
+    "oyunun poz kütüphanesinden gelir ve üstüne zırh takılabilir.",
+    "Kullanmak için bu dosyanın içeriğini warrior.json'a kopyalayın."
+  ],
+  "enabled": true,
+  "kind": "rigged",
+  "file": "base_male.glb",
+  "height": 1.95,
+  "twoHanded": true,
+  "skin": { "color": 13543550 }
+}

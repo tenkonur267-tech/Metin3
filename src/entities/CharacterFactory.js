@@ -8,6 +8,18 @@
  */
 import { Warrior } from './Warrior.js';
 import { ModelCharacter } from './ModelCharacter.js';
+import { RiggedCharacter } from './RiggedCharacter.js';
+
+/**
+ * İki tür dış model desteği var:
+ *
+ *   'animated'  Model kendi animasyon kliplerini getirir (KayKit gibi hazır
+ *               karakterler). ModelCharacter kullanılır.
+ *   'rigged'    Model yalnızca deri ve iskelet getirir; hareket bizim poz
+ *               kütüphanemizden gelir ve üstüne zırh takılabilir.
+ *               RiggedCharacter kullanılır.
+ */
+const KINDS = { animated: ModelCharacter, rigged: RiggedCharacter };
 
 const CONFIG_URL = 'assets/characters/warrior.json';
 
@@ -22,9 +34,12 @@ export async function tryLoadCharacterModel(onStatus = () => {}) {
   if (embedded) {
     try {
       onStatus('Karakter modeli hazırlanıyor…');
-      const character = await ModelCharacter.load(embedded);
-      console.info('[karakter] gömülü model yüklendi');
-      console.info('[karakter] animasyon eşleşmesi:\n  ' + character.clipReport.join('\n  '));
+      const Kind = KINDS[embedded.kind || 'animated'] || ModelCharacter;
+      const character = await Kind.load(embedded);
+      console.info('[karakter] gömülü model yüklendi:', embedded.kind || 'animated');
+      if (character.clipReport) {
+        console.info('[karakter] animasyon eşleşmesi:\n  ' + character.clipReport.join('\n  '));
+      }
       return { character, cfg: embedded };
     } catch (err) {
       console.warn('[karakter] gömülü model yüklenemedi:', err.message);
@@ -56,9 +71,12 @@ export async function tryLoadCharacterModel(onStatus = () => {}) {
 
   try {
     onStatus(`Karakter modeli yükleniyor: ${cfg.file.split('/').pop()}`);
-    const character = await ModelCharacter.load(cfg);
-    console.info('[karakter] model yüklendi:', cfg.file);
-    console.info('[karakter] animasyon eşleşmesi:\n  ' + character.clipReport.join('\n  '));
+    const Kind = KINDS[cfg.kind || 'animated'] || ModelCharacter;
+    const character = await Kind.load(cfg);
+    console.info('[karakter] model yüklendi:', cfg.file, `(${cfg.kind || 'animated'})`);
+    if (character.clipReport) {
+      console.info('[karakter] animasyon eşleşmesi:\n  ' + character.clipReport.join('\n  '));
+    }
     return { character, cfg };
   } catch (err) {
     // Model bozuksa oyunu düşürmek yerine prosedürel karaktere dön

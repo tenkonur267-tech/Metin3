@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { getTexture } from '../core/Textures.js';
 
 /* Animasyonun doğrudan sürdüğü eklemler. */
-const JOINTS = [
+export const JOINTS = [
   'hips', 'spine', 'chest', 'neck', 'head',
   'shoulderL', 'armL', 'foreArmL', 'handL',
   'shoulderR', 'armR', 'foreArmR', 'handR',
@@ -24,13 +24,13 @@ const JOINTS = [
 ];
 
 /** Boş bir poz: her eklem için [rx, ry, rz] + kök ötelemesi. */
-function blankPose() {
+export function blankPose() {
   const p = { _rootY: 0, _rootZ: 0, _rootRoll: 0, _rootYaw: 0 };
   for (const j of JOINTS) p[j] = [0, 0, 0];
   return p;
 }
 
-function lerpPose(out, a, b, t) {
+export function lerpPose(out, a, b, t) {
   for (const j of JOINTS) {
     const A = a[j], B = b[j], O = out[j];
     O[0] = A[0] + (B[0] - A[0]) * t;
@@ -57,7 +57,7 @@ const clamp = THREE.MathUtils.clamp;
 /* çözüyoruz — basma evresinde ayak yerde durur, gövde onun üstünden    */
 /* geçer.                                                              */
 /* ------------------------------------------------------------------ */
-const LEG = { thigh: 0.45, shin: 0.43, hipDrop: 0.07, restHipY: 0.98 };
+export const LEG = { thigh: 0.45, shin: 0.43, hipDrop: 0.07, restHipY: 0.98 };
 
 /**
  * Yürüyüş parametreleri.
@@ -68,7 +68,7 @@ const LEG = { thigh: 0.45, shin: 0.43, hipDrop: 0.07, restHipY: 0.98 };
  * `hipY` de adım boyunu sınırlar: ayak, kalçadan bacak boyundan uzağa
  * uzanamaz.
  */
-const GAIT = {
+export const GAIT = {
   walk: { stride: 0.70, contact: 0.62, lift: 0.13, hipY: 0.84, bob: 0.018 },
   run: { stride: 0.96, contact: 0.38, lift: 0.30, hipY: 0.80, bob: 0.050 },
 };
@@ -136,7 +136,7 @@ function twoHandGrip(p) {
   p.foreArmL[0] = -1.15; p.foreArmL[1] = -0.30;
 }
 
-const POSES = {
+export const POSES = {
   /** Dinlenme: kılıç omuzda, ağır nefes alışverişi. */
   idle(p, t, ctx) {
     const b = Math.sin(t * 1.55);
