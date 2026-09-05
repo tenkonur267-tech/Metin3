@@ -13,6 +13,7 @@ import { Village } from './world/Village.js';
 import { Nature } from './world/Nature.js';
 import { CollisionWorld } from './world/Collision.js';
 import { Warrior } from './entities/Warrior.js';
+import { tryLoadCharacterModel } from './entities/CharacterFactory.js';
 import { PlayerController } from './entities/PlayerController.js';
 import { SwordTrail } from './entities/SwordTrail.js';
 import { HUD } from './ui/HUD.js';
@@ -79,7 +80,9 @@ class Game {
 
     p(0.95, 'Son rötuşlar…');
     await nextFrame();
-    // Oyuncu karakteri (krallık seçilince zırhı yeniden kurulacak)
+    // Dışarıdan model varsa şimdi yükle: krallık seçilirken beklesin,
+    // başlat düğmesine basıldığında oyun anında açılsın.
+    this.loadedModel = await tryLoadCharacterModel((msg) => p(0.96, msg));
     this.player = null;
     this.controller = null;
 
@@ -138,7 +141,11 @@ class Game {
 
     const village = this.villages.get(kingdom.id);
 
-    this.player = new Warrior(kingdom.armor, { scale: 1, weapon: 'twohand' });
+    // Dışarıdan yüklenmiş model varsa onu kullan, yoksa prosedürel savaşçı.
+    // İki sınıf da aynı arayüzü sunduğu için aşağıdaki kod ikisinde de aynı.
+    this.player = this.loadedModel
+      ? this.loadedModel.character
+      : new Warrior(kingdom.armor, { scale: 1, weapon: 'twohand' });
     this.player.addTo(this.engine.scene);
 
     this.trail = new SwordTrail(16, kingdom.color).addTo(this.engine.scene);

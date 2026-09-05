@@ -29,7 +29,9 @@ const bundle = await esbuild.build({
   alias: { three: r('vendor/three/three.module.js') },
   write: false,
 });
-const js = bundle.outputFiles[0].text;
+// Paket tek dosya olarak dağıtıldığı için yanında assets klasörü olmaz;
+// karakter modeli aramasını baştan kapatıyoruz.
+const js = 'globalThis.__METIN3_SINGLE_FILE__=true;\n' + bundle.outputFiles[0].text;
 
 /* 2. Stil ve oyun işaretlemesini al */
 const css = await fs.readFile(r('styles/ui.css'), 'utf8');

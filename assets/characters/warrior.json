@@ -1,0 +1,38 @@
+{
+  "_aciklama": [
+    "Kendi karakter modelinizi kullanmak için: 'enabled' değerini true yapın",
+    "ve 'file' alanına bu klasördeki model dosyanızın adını yazın.",
+    "Ayrıntılar için README.md'ye bakın. Kapalıyken oyun prosedürel",
+    "savaşçıyla çalışır."
+  ],
+  "enabled": false,
+  "file": "warrior.glb",
+  "animationFiles": [],
+  "height": 1.95,
+  "yOffset": 0,
+  "rotationY": 0,
+  "clipWalkSpeed": 1.75,
+  "clipRunSpeed": 7.0,
+  "damageWindow": [
+    0.3,
+    0.55
+  ],
+  "weaponBone": "mixamorigRightHand",
+  "weaponBaseOffset": [
+    0,
+    0.1,
+    0
+  ],
+  "weaponTipOffset": [
+    0,
+    1.2,
+    0
+  ],
+  "clips": {
+    "idle": "",
+    "walk": "",
+    "run": "",
+    "attack": "",
+    "die": ""
+  }
+}

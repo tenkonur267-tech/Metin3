@@ -60,14 +60,28 @@ src/
     Nature.js         ağaç/kaya dağıtımı (InstancedMesh)
     Collision.js      uzamsal ızgaralı çarpışma
   entities/
-    Warrior.js        savaşçı modeli + animasyon poz kütüphanesi
+    Warrior.js          prosedürel savaşçı + animasyon poz kütüphanesi
+    ModelCharacter.js   dışarıdan yüklenen riglenmiş karakter (glb/gltf/fbx)
+    CharacterFactory.js hangisinin kullanılacağına karar verir
     PlayerController.js hareket, çarpışma, kamera, beceriler
-    SwordTrail.js     kılıç izi efekti
+    SwordTrail.js       kılıç izi efekti
+assets/characters/    kendi karakter modelinizi buraya koyun (README'si var)
   ui/
     HUD.js            çubuklar, mini harita, düğmeler
     KingdomSelect.js  açılış ve krallık seçimi
   data/kingdoms.js    üç krallığın tanımı
 ```
+
+## Kendi karakter modelinizi kullanma
+
+Oyun varsayılan olarak koda gömülü prosedürel savaşçıyla gelir. Riglenmiş ve
+animasyonlu bir model (`.glb`, `.gltf`, `.fbx`) `assets/characters/` altına
+konup `warrior.json` ile tanıtılırsa oyuncu karakteri onunla değiştirilir —
+kod değişikliği gerekmez. Animasyon klipleri adlarına göre otomatik eşleşir,
+eşleşme konsola yazılır ve gerekirse elle bağlanabilir. Ayrıntılar:
+[`assets/characters/README.md`](assets/characters/README.md).
+
+Model yoksa, bozuksa ya da kapalıysa oyun prosedürel karaktere döner.
 
 ## Varlıklar hakkında
 
