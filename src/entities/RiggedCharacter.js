@@ -24,6 +24,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../../vendor/three/jsm/loaders/GLTFLoader.js';
 import { Warrior, JOINTS } from './Warrior.js';
+import { buildArmorSet, ARMOR_SLOTS } from './ArmorSet.js';
 
 /** Poz eklemi -> kemik adı. Ad temizliği (nokta vb.) sonradan uygulanır. */
 const DEFAULT_BONE_MAP = {
@@ -67,6 +68,7 @@ export class RiggedCharacter {
     this._applySkin();
     this._fitScale();
     this._bindDriver();
+    this._measure();
 
     /* -- Durum: sürücüden yansıtılır -- */
     this.state = this.driver.state;
@@ -120,11 +122,18 @@ export class RiggedCharacter {
     this.model.updateMatrixWorld(true);
 
     const modelInv = this.model.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const modelPos = this.model.getWorldPosition(new THREE.Vector3());
     this.offset = {};
+    this.restQ = {};    // kemiğin dinlenme yönelimi (model köküne göre)
+    this.restP = {};    // kemiğin dinlenme konumu (model köküne göre)
     for (const joint of this.mappedJoints) {
       const dq = this.driver.j[joint].getWorldQuaternion(new THREE.Quaternion());
       const tq = this.j[joint].getWorldQuaternion(new THREE.Quaternion());
       tq.premultiply(modelInv);                       // modelin kökine göre
+      this.restQ[joint] = tq.clone();
+      this.restP[joint] = this.j[joint].getWorldPosition(new THREE.Vector3())
+        .sub(modelPos).applyQuaternion(modelInv)
+        .divideScalar(this.modelScale || 1);
       this.offset[joint] = dq.invert().multiply(tq);  // sürücü⁻¹ · hedef
     }
     this.restHipY = LEG_REST_HIP_Y;
@@ -162,18 +171,115 @@ export class RiggedCharacter {
     this.restHipY *= s;
   }
 
+  /**
+   * Zırh parçalarının ölçüleceği kemik boyutları.
+   *
+   * Zırh dünya metresiyle değil kemik uzunluklarıyla ölçekleniyor; böylece
+   * farklı boy ve orandaki riglere aynı set oturuyor.
+   */
+  _measure() {
+    const len = (joint) => {
+      const b = this.j[joint];
+      const kid = b && b.children.find((c) => c.isBone);
+      return kid ? kid.position.length() : 0;
+    };
+    const gap = (a, bJoint) => {
+      const ba = this.j[a], bb = this.j[bJoint];
+      if (!ba || !bb) return 0;
+      return ba.getWorldPosition(_v).distanceTo(bb.getWorldPosition(new THREE.Vector3()))
+        / (this.modelScale || 1);
+    };
+    this.model.updateMatrixWorld(true);
+    const inv = 1 / (this.modelScale || 1);
+
+    // Gövde boyu: tek bir omur değil, kalçadan boyuna kadar olan mesafe.
+    // Göğüslüğü tek omurun boyuna göre ölçeklemek onu gövdenin ortasında
+    // küçük bir bant halinde bırakıyordu.
+    const torso = (this.j.hips && this.j.neck)
+      ? this.j.hips.getWorldPosition(_v)
+        .distanceTo(this.j.neck.getWorldPosition(new THREE.Vector3())) * inv
+      : 0.70;
+
+    // Kafa yarıçapı: kafa kemiği ile mesh'in tepesi arasındaki mesafe.
+    const bbox = new THREE.Box3().setFromObject(this.model);
+    const headBoneY = this.j.head
+      ? this.j.head.getWorldPosition(_v).y
+      : bbox.max.y - 0.2;
+    // Kafa kemiği boynun tepesinde duruyor; kafa hacmi onun üstünde kalıyor
+    const headHeight = Math.max((bbox.max.y - headBoneY) * inv, 0.16);
+    const head = headHeight * 0.46;
+
+    this.dim = {
+      torso,
+      chest: len('chest') || torso * 0.25,
+      upperArm: len('armL') || 0.33,
+      foreArm: len('foreArmL') || 0.24,
+      hand: len('handL') || 0.12,
+      thigh: len('thighL') || 0.40,
+      shin: len('shinL') || 0.50,
+      foot: len('footL') || 0.13,
+      head,
+      headHeight,
+      shoulderWidth: gap('armL', 'armR') || 0.36,
+      hipWidth: gap('thighL', 'thighR') || 0.20,
+    };
+  }
+
   /* ---------------- Ekipman ---------------- */
 
   /**
-   * Bir zırh parçasını kemiğe takar.
-   * @param {string} slot  'chest' | 'head' | 'shoulderL' ...
-   * @param {THREE.Object3D} piece
-   * @param {string} joint eklem adı (varsayılan: slot ile aynı)
+   * Krallık paletine göre bütün zırh setini takar.
+   * @param {object} theme kingdom.armor
    */
-  equip(slot, piece, joint = slot) {
+  equipArmor(theme) {
+    this.unequipArmor();
+    const pieces = buildArmorSet(theme, this.dim, this.restP);
+    for (const [slot, def] of Object.entries(pieces)) {
+      const joint = def.joint || ARMOR_SLOTS[slot];
+      if (!joint || !this.j[joint]) continue;
+      this.equip(slot, def.piece, joint, def.offset);
+    }
+    // Kılıç izi için namlu uçları
+    const sword = pieces.sword;
+    if (sword) {
+      this.weaponBase = sword.piece.userData.weaponBase;
+      this.weaponTip = sword.piece.userData.weaponTip;
+    }
+    this.armorTheme = theme;
+    return pieces;
+  }
+
+  unequipArmor() {
+    for (const slot of Object.keys(ARMOR_SLOTS)) this.unequip(slot);
+    this.weaponBase = this.weaponTip = null;
+  }
+
+
+  /**
+   * Bir zırh parçasını kemiğe takar.
+   *
+   * Parçalar karakter uzayında tasarlanıyor (Y yukarı, Z ileri, X sağ).
+   * Kemiklerin yerel eksenleri rige göre değiştiği için parça, kemiğin
+   * dinlenme yönelimiyle ters döndürülerek takılıyor: böylece tasarım
+   * sırasında kemik eksen düzenini bilmek gerekmiyor, parça yine de
+   * animasyonda kemiği takip ediyor.
+   *
+   * @param {string} slot
+   * @param {THREE.Object3D} piece
+   * @param {string} joint  eklem adı (varsayılan: slot ile aynı)
+   * @param {THREE.Vector3|number[]} [offset]  karakter uzayında kaydırma
+   */
+  equip(slot, piece, joint = slot, offset = null) {
     this.unequip(slot);
     const bone = this.j[joint];
     if (!bone) { console.warn('[rig] ekipman için kemik yok:', joint); return null; }
+
+    const inv = (this.restQ[joint] || new THREE.Quaternion()).clone().invert();
+    piece.quaternion.copy(inv);
+    if (offset) {
+      const v = Array.isArray(offset) ? new THREE.Vector3(...offset) : offset.clone();
+      piece.position.copy(v.applyQuaternion(inv));
+    }
     bone.add(piece);
     this.equipment.set(slot, { piece, bone });
     return piece;

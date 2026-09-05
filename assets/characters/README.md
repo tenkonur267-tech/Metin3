@@ -77,6 +77,23 @@ window.game.player.model.traverse(o => o.isBone && console.log(o.name))
 `rigged` yolunda karakterin üstüne zırh takılabilir: model çıplak taban gövde
 olarak kalır, ekipman kemiklere ayrı parçalar olarak eklenir.
 
+### Zırh nasıl takılıyor
+
+Zırh parçaları `src/entities/ArmorSet.js` içinde prosedürel üretiliyor ve
+krallık paletine göre boyanıyor. Ölçüler kemiklerden okunuyor (gövde boyu,
+omuz genişliği, uzuv uzunlukları), böylece farklı boy ve orandaki riglere
+aynı set oturuyor.
+
+Parçalar **karakter uzayında** yazılıyor: Y yukarı, Z ileri, X sağ.
+Kemiklerin yerel eksen düzeni rigden rige değiştiği için `equip()` parçayı
+kemiğin dinlenme yönelimiyle ters döndürerek takıyor; parça tasarlanırken
+kemiğin eksenlerini bilmek gerekmiyor, animasyonda yine kemiği takip ediyor.
+
+Slotlar: `chest`, `pauldronL/R`, `bracerL/R`, `thighGuardL/R`, `greaveL/R`,
+`bootL/R`, `tassets`, `helmet`, `cape`, `sword`. Tek tek takılıp
+çıkarılabiliyor (`equip` / `unequip`), ileride envanterden gelen ekipmana
+bağlanabilir.
+
 ### Aktarım nasıl çalışıyor
 
 İki iskeletin dinlenme pozları ve kemik eksen düzenleri farklı olduğu için

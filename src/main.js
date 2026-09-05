@@ -163,6 +163,8 @@ class Game {
     this.player = this.loadedModel
       ? this.loadedModel.character
       : new Warrior(kingdom.armor, { scale: 1, weapon: 'twohand' });
+    // Çıplak taban gövde kullanılıyorsa zırhı seçilen krallığın renginde tak
+    if (this.player.equipArmor) this.player.equipArmor(kingdom.armor);
     this.player.addTo(this.engine.scene);
 
     this.trail = new SwordTrail(16, kingdom.color).addTo(this.engine.scene);

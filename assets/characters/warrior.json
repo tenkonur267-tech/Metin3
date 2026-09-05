@@ -1,55 +1,16 @@
 {
   "_aciklama": [
-    "KayKit Adventurers Character Pack (Kay Lousberg) - CC0 1.0.",
-    "Lisans metni: knight-LICENSE.txt",
-    "Kapatmak için enabled: false yapın; oyun prosedürel savaşçıya döner."
+    "Çıplak taban gövde + krallık renginde prosedürel zırh.",
+    "base_male.glb: BoQsc / Orange Juice Games, CC0 1.0 (base_male-LICENSE.txt).",
+    "Zırh ve hareket oyunun kendi kodundan gelir.",
+    "Prosedürel savaşçıya dönmek için: enabled false.",
+    "KayKit şövalyesine dönmek için: kind 'animated', file 'knight.glb'."
   ],
   "enabled": true,
-  "file": "knight.glb",
-
+  "kind": "rigged",
+  "file": "base_male.glb",
   "height": 1.95,
-  "yOffset": 0,
-  "rotationY": 0,
-
-  "clipWalkSpeed": 1.75,
-  "clipRunSpeed": 7.0,
-  "damageWindow": [0.34, 0.62],
-
-  "showNodes": ["2H_Sword"],
-  "hideNodes": [
-    "1H_Sword", "1H_Sword_Offhand",
-    "Badge_Shield", "Rectangle_Shield", "Round_Shield", "Spike_Shield"
-  ],
-
-  "weaponBone": "handslot.r",
-  "weaponBaseOffset": [0, 0.15, 0],
-  "weaponTipOffset": [0, 1.55, 0],
-
-  "attackClips": [
-    "2H_Melee_Attack_Slice",
-    "2H_Melee_Attack_Chop",
-    "2H_Melee_Attack_Stab"
-  ],
-
-  "speed": {
-    "attack": 1.45,
-    "spin": 1.15,
-    "tripleCut": 1.0,
-    "hit": 1.0,
-    "die": 1.0,
-    "dash": 1.0
-  },
-
-  "clips": {
-    "idle": "2H_Melee_Idle",
-    "combatIdle": "2H_Melee_Idle",
-    "walk": "Walking_A",
-    "run": "Running_A",
-    "spin": "2H_Melee_Attack_Spin",
-    "tripleCut": "2H_Melee_Attack_Spinning",
-    "jump": "Jump_Idle",
-    "hit": "Hit_A",
-    "die": "Death_A",
-    "dash": "Dodge_Forward"
-  }
+  "twoHanded": true,
+  "armorFromKingdom": true,
+  "skin": { "color": 14198412 }
 }
