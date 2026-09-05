@@ -390,6 +390,127 @@ function armorPlate(base, trim) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Metin taşı — koyu, çatlaklı obsidyen yüzey                          */
+/* ------------------------------------------------------------------ */
+function metinRock() {
+  const size = 256;
+  const c = canvas(size);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1d1a22';
+  ctx.fillRect(0, 0, size, size);
+  const rand = rng(1907);
+
+  // Fasetli koyu taş yüzeyi
+  for (let i = 0; i < 130; i++) {
+    const x = rand() * size, y = rand() * size;
+    const r = 10 + rand() * 34;
+    const k = 0.6 + rand() * 0.9;
+    ctx.fillStyle = `rgba(${Math.round(46 * k)},${Math.round(41 * k)},${Math.round(56 * k)},0.55)`;
+    ctx.beginPath();
+    const n = 5 + Math.floor(rand() * 3);
+    for (let j = 0; j < n; j++) {
+      const a = (j / n) * Math.PI * 2 + rand() * 0.4;
+      const rr = r * (0.6 + rand() * 0.5);
+      const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
+      j ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Çatlaklar
+  for (let i = 0; i < 22; i++) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+    ctx.lineWidth = 0.6 + rand() * 1.8;
+    ctx.beginPath();
+    let x = rand() * size, y = rand() * size;
+    ctx.moveTo(x, y);
+    for (let j = 0; j < 7; j++) {
+      x += (rand() - 0.5) * 46;
+      y += (rand() - 0.5) * 46;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  noiseFill(ctx, size, null, 26, 1907);
+  return c;
+}
+
+/**
+ * Taşın üzerindeki ışıyan damar deseni.
+ * Emissive harita olarak kullanılır: siyah yerler sönük, beyaz yerler parlak.
+ */
+function metinVeins() {
+  const size = 256;
+  const c = canvas(size);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, size, size);
+  const rand = rng(4211);
+
+  // Dallanan damarlar
+  const branch = (x, y, a, len, w, depth) => {
+    if (depth <= 0 || w < 0.4) return;
+    const x2 = x + Math.cos(a) * len;
+    const y2 = y + Math.sin(a) * len;
+    const g = ctx.createLinearGradient(x, y, x2, y2);
+    g.addColorStop(0, `rgba(255,255,255,${0.30 + depth * 0.09})`);
+    g.addColorStop(1, `rgba(255,255,255,${0.14 + depth * 0.07})`);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    branch(x2, y2, a + (rand() - 0.5) * 1.1, len * 0.76, w * 0.68, depth - 1);
+    if (rand() > 0.35) branch(x2, y2, a + (rand() - 0.5) * 1.5, len * 0.6, w * 0.55, depth - 1);
+  };
+  for (let i = 0; i < 7; i++) {
+    branch(rand() * size, rand() * size, rand() * Math.PI * 2, 26 + rand() * 18, 4.5, 5);
+  }
+  // Damarların çevresine hafif hale
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.filter = 'blur(6px)';
+  ctx.drawImage(c, 0, 0);
+  ctx.filter = 'none';
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+/** Zemindeki dönen hale halkası (additive olarak çizilir). */
+function auraRing() {
+  const size = 256;
+  const c = canvas(size);
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  const cx = size / 2, cy = size / 2;
+  const g = ctx.createRadialGradient(cx, cy, size * 0.26, cx, cy, size * 0.5);
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.5)');
+  g.addColorStop(0.82, 'rgba(255,255,255,0.22)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Halkayı bölen ışık dilimleri: dönerken hareket okunur olsun
+  ctx.globalCompositeOperation = 'destination-out';
+  const rand = rng(77);
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    const w = 0.06 + rand() * 0.10;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, size * 0.5, a, a + w);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  return c;
+}
+
+/* ------------------------------------------------------------------ */
 /* Yardımcılar                                                          */
 /* ------------------------------------------------------------------ */
 function roundRect(ctx, x, y, w, h, r) {
@@ -427,6 +548,9 @@ export function getTexture(name, opts = {}) {
     case 'path':      tex = finish(groundPath(), { repeat: opts.repeat ?? 1 }); break;
     case 'armor':     tex = finish(armorPlate(opts.a || '#7a2230', opts.b || '#d9b45a'), { repeat: opts.repeat ?? 1 }); break;
     case 'banner':    tex = banner(opts.a || '#8e1f2a', opts.b || '#e8d59a'); break;
+    case 'metinRock': tex = finish(metinRock(), { repeat: opts.repeat ?? 1 }); break;
+    case 'metinVeins': tex = finish(metinVeins(), { repeat: opts.repeat ?? 1 }); break;
+    case 'auraRing':  tex = finish(auraRing(), { repeat: 1, srgb: false }); break;
     default: throw new Error('Bilinmeyen doku: ' + name);
   }
   cache.set(key, tex);

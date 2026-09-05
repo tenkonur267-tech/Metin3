@@ -18,6 +18,8 @@ import { PlayerController } from './entities/PlayerController.js';
 import { SwordTrail } from './entities/SwordTrail.js';
 import { HUD } from './ui/HUD.js';
 import { KingdomSelect } from './ui/KingdomSelect.js';
+import { Combat } from './systems/Combat.js';
+import { FloatingText } from './ui/FloatingText.js';
 import { KINGDOMS } from './data/kingdoms.js';
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -37,6 +39,7 @@ class Game {
     // Karakter durumu
     this.stats = {
       level: 1, hp: 320, hpMax: 320, mp: 120, mpMax: 120, xp: 0, xpMax: 1000,
+      attack: 34, critChance: 0.15, critMult: 1.8,
     };
 
     this.select.onStart((k) => this.start(k));
@@ -77,6 +80,20 @@ class Game {
     this.nature = new Nature(this.terrain, { count: this.quality.treeCount });
     this.nature.addTo(this.engine.scene);
     this.collision.addAll(this.nature.colliders);
+
+    p(0.90, 'Metin taşları dikiliyor…');
+    await nextFrame();
+    this.floatingText = new FloatingText(this.engine.scene, 24);
+    this.combat = new Combat({
+      scene: this.engine.scene,
+      terrain: this.terrain,
+      collision: this.collision,
+      floatingText: this.floatingText,
+      hud: this.hud,
+      stats: this.stats,
+    });
+    const stoneCount = this.combat.populate(this.quality.tier === 'low' ? 9 : 13);
+    console.info(`[savaş] ${stoneCount} metin taşı yerleştirildi`);
 
     p(0.95, 'Son rötuşlar…');
     await nextFrame();
@@ -156,6 +173,12 @@ class Game {
     this.controller.onSkillFail = (sk) => this.hud.toast(`${sk.name}: yeterli mana yok`);
     this.controller.teleport(village.spawn.x, village.spawn.z, village.spawnFacing);
 
+    this.combat.onPlayerDamaged = (dmg, from) => this._takeDamage(dmg, from);
+    this.combat.onLevelUp = () => {
+      this.hud.setCharacter({ name: 'Savaşçı', level: this.stats.level, kingdom });
+    };
+    this.deathTimer = 0;
+
     this.hud.setCharacter({ name: 'Savaşçı', level: this.stats.level, kingdom });
     this.hud.setStats(this.stats);
     this.hud.showZone(village.kingdom.village, village.kingdom.title);
@@ -191,8 +214,16 @@ class Game {
       this.trail.fade();
     }
 
-    // Mana yavaşça dolsun, saldırı mana yaksın
+    // Mana ve can yavaşça dolsun
     this.stats.mp = Math.min(this.stats.mpMax, this.stats.mp + dt * 4.5);
+    if (this.controller.alive) {
+      this.stats.hp = Math.min(this.stats.hpMax, this.stats.hp + dt * 2.2);
+    }
+
+    // Savaş: metin taşları, canavarlar, vuruşlar
+    this.combat.update(dt, this.player, pos, this.controller.yaw, this.controller.camDist);
+    this.floatingText.update(dt);
+    this._updateDeath(dt);
 
     // Yakındaki NPC'leri canlandır (uzaktakiler için işlem harcama)
     for (const n of this.npcs) {
@@ -207,10 +238,49 @@ class Game {
     this.hud.setStats(this.stats);
     this.hud.drawMinimap(pos, this.controller.yaw, this.terrain);
     this.hud.setCoords(pos.x, pos.z, this._zoneLabel(pos));
-    this.hud.tickFps(dt);
+    this.hud.tickFps();
 
     this.input.endFrame();
   };
+
+  /** Canavar vuruşu oyuncuya isabet etti. */
+  _takeDamage(amount, from) {
+    if (!this.controller.alive) return;
+    this.stats.hp = Math.max(0, this.stats.hp - amount);
+    // Yazı oyuncunun başının üstünde belirsin
+    this._dmgPos ||= new THREE.Vector3();
+    this._dmgPos.set(
+      this.controller.pos.x + (Math.random() - 0.5) * 0.5,
+      this.controller.pos.y + 2.0,
+      this.controller.pos.z);
+    this.floatingText.damage(amount, this._dmgPos, { toPlayer: true });
+
+    if (this.stats.hp <= 0) {
+      this.controller.alive = false;
+      this.controller.attacking = false;
+      this.player.setState('die');
+      this.hud.toast('Yenildin — köyde uyanıyorsun');
+      this.deathTimer = 3.2;
+    } else if (!this.controller.attacking && this.player.state !== 'hit') {
+      this.player.setState('hit');
+    }
+    void from;
+  }
+
+  /** Ölümden sonra köyde yeniden doğuş. */
+  _updateDeath(dt) {
+    if (this.controller.alive || this.deathTimer <= 0) return;
+    this.deathTimer -= dt;
+    if (this.deathTimer > 0) return;
+
+    const village = this.villages.get(this.kingdom.id);
+    this.stats.hp = this.stats.hpMax;
+    this.stats.mp = this.stats.mpMax;
+    this.controller.alive = true;
+    this.controller.teleport(village.spawn.x, village.spawn.z, village.spawnFacing);
+    this.player.setState('idle', { force: true });
+    this.hud.showZone(village.kingdom.village, 'Yeniden doğdun');
+  }
 
   /** Oyuncunun bulunduğu bölgeyi belirler ve gerekirse bildirir. */
   _zoneLabel(pos) {

@@ -84,6 +84,7 @@ export class PlayerController {
       ? this.world.query(this.pos.x, this.pos.z, this._near)
       : this.colliders;
     for (const c of list) {
+      if (c.disabled) continue;      // yıkılmış metin taşı gibi kalkan engeller
       if (c.kind === 'circle') {
         const dx = this.pos.x - c.x, dz = this.pos.z - c.z;
         const d = Math.hypot(dx, dz);

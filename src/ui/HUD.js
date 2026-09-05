@@ -15,7 +15,6 @@ export class HUD {
     this._build();
     this._bindButtons();
     this._lastZone = null;
-    this._fpsAcc = 0;
     this._fpsFrames = 0;
   }
 
@@ -29,6 +28,11 @@ export class HUD {
           <div class="bar mp"><i></i><span></span></div>
           <div class="bar xp"><i></i></div>
         </div>
+      </div>
+
+      <div id="target-panel">
+        <div id="target-name"></div>
+        <div class="bar target"><i></i></div>
       </div>
 
       <div id="minimap-wrap"><canvas id="minimap" width="118" height="118"></canvas></div>
@@ -63,6 +67,9 @@ export class HUD {
       hint: q('#hint'),
       fps: q('#fps'),
       toast: q('#toast'),
+      targetPanel: q('#target-panel'),
+      targetName: q('#target-name'),
+      targetBar: q('.bar.target > i'),
       attack: q('#btn-attack'),
       jump: q('#btn-jump'),
       skill1: q('#btn-skill1'),
@@ -79,6 +86,18 @@ export class HUD {
     this.input.bindButton(this.el.jump, 'jump');
     this.input.bindButton(this.el.skill1, 'skill1');
     this.input.bindButton(this.el.skill2, 'skill2');
+  }
+
+  /**
+   * Vurulan hedefin adını ve canını üstte gösterir.
+   * @param {?object} t { name, level, ratio } — null ise panel gizlenir
+   */
+  setTarget(t) {
+    if (!t) { this.el.targetPanel.classList.remove('show'); return; }
+    const label = t.level ? `${t.name}  ·  Sv ${t.level}` : t.name;
+    if (this.el.targetName.textContent !== label) this.el.targetName.textContent = label;
+    this.el.targetBar.style.transform = `scaleX(${Math.max(0, t.ratio)})`;
+    this.el.targetPanel.classList.add('show');
   }
 
   /** Kısa süreli uyarı yazısı (mana yetmedi, bölge kilitli vb.). */
@@ -199,13 +218,21 @@ export class HUD {
       `${Math.round(x)}, ${Math.round(z)}${extra ? '<br>' + extra : ''}`;
   }
 
-  tickFps(dt) {
-    this._fpsAcc += dt;
+  /**
+   * Kare hızı.
+   *
+   * Oyun döngüsünün `dt`si üst sınıra kırpıldığı için (bkz. main.js) onu
+   * toplamak gerçek hızı değil, simülasyon hızını ölçer: cihaz 3 FPS'te
+   * koşarken bile sayaç 20 gösterir. Bu yüzden gerçek saat kullanılıyor.
+   */
+  tickFps() {
+    const now = performance.now();
+    this._fpsLast ??= now;
     this._fpsFrames++;
-    if (this._fpsAcc >= 0.5) {
-      const fps = Math.round(this._fpsFrames / this._fpsAcc);
-      this.el.fps.textContent = fps + ' FPS';
-      this._fpsAcc = 0;
+    const elapsed = (now - this._fpsLast) / 1000;
+    if (elapsed >= 0.5) {
+      this.el.fps.textContent = Math.round(this._fpsFrames / elapsed) + ' FPS';
+      this._fpsLast = now;
       this._fpsFrames = 0;
     }
   }
