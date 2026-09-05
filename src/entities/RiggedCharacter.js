@@ -24,7 +24,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from '../../vendor/three/jsm/loaders/GLTFLoader.js';
 import { Warrior, JOINTS } from './Warrior.js';
-import { buildArmorSet, buildFace, ARMOR_SLOTS } from './ArmorSet.js';
+import { buildArmorSet, buildVisual, makeContext, buildFace, ARMOR_SLOTS, GRUP_SLOTLARI }
+  from './ArmorSet.js';
 
 /** Poz eklemi -> kemik adı. Ad temizliği (nokta vb.) sonradan uygulanır. */
 const DEFAULT_BONE_MAP = {
@@ -112,17 +113,23 @@ export class RiggedCharacter {
   }
 
   /**
-   * Modelin dinlenme eksen tabanını ölçer.
+   * Modelin kendi eksen tabanını ölçer ve modeli motorun düzenine çevirir.
    *
-   * Zırh karakter uzayında yazılıyor (X sağ, Y yukarı, Z ileri) ama riglerin
-   * dinlenme ekseni dışa aktarıma göre değişiyor: bu taban gövdede "sağ"
-   * ekseni +Z, "ileri" ekseni +X çıkıyor.
+   * İki ayrı iş var ve ikisi de gerekli:
    *
-   * Modeli döndürerek düzeltmeye çalışmak işe yaramıyor, çünkü kemik
-   * konumları modelin kendi yerel uzayında ölçülüyor ve modelin dönüşü o
-   * uzayı değiştirmiyor; her şey birlikte dönüp aynı yanlış kalıyor. Onun
-   * yerine burada ölçülen taban, ekipman takılırken karakter uzayından
-   * model uzayına çevirmek için kullanılıyor.
+   * 1. **Taban.** Ekipman karakter uzayında yazılıyor (X sağ, Y yukarı,
+   *    Z ileri) ama riglerin dinlenme ekseni dışa aktarıma göre değişiyor;
+   *    bu taban gövdede modelin önü +X, sağı -Z çıkıyor. Ölçülen taban,
+   *    ekipman takılırken karakter uzayından model uzayına çeviriyor.
+   *
+   * 2. **Model dönüşü.** Motorun düzeninde bakış yönü `(sin yaw, cos yaw)`,
+   *    yani kök dönüşü modelin +Z'sini öne getirir. Önü +X olan bir model
+   *    bu düzende yan yürüyor: yüzü yürüdüğü yöne 90° dik duruyor.
+   *    Ölçülen ileri yön +Z'ye getirilerek düzeltiliyor.
+   *
+   * Kemikler modele göre yönlendirildiği için (update() istenen yönelimi
+   * model uzayında kuruyor) modeli döndürmek gövdeyi, zırhı ve yüzü
+   * birlikte çeviriyor; aralarındaki hizayı bozmuyor.
    */
   _measureFrame() {
     this.model.updateMatrixWorld(true);
@@ -161,6 +168,11 @@ export class RiggedCharacter {
     const m = new THREE.Matrix4().makeBasis(right, up, fwd);
     this.frameQ = new THREE.Quaternion().setFromRotationMatrix(m);
     this.frameAxes = { right, up: up.clone(), fwd };
+
+    // Ölçülen ileri yönü motorun ileri yönüne (+Z) çevir
+    this.yawFix = -Math.atan2(fwd.x, fwd.z);
+    this.rotationY = (this.cfg.rotationY || 0) + this.yawFix;
+    this.model.rotation.y = this.rotationY;
   }
 
   /**
@@ -182,6 +194,8 @@ export class RiggedCharacter {
     this.offset = {};
     this.restQ = {};    // kemiğin dinlenme yönelimi (model köküne göre)
     this.restP = {};    // kemiğin dinlenme konumu (model köküne göre)
+    this.restPC = {};   // aynı konum, karakter uzayında (X sağ, Y yukarı, Z ileri)
+    const frameInv = (this.frameQ || new THREE.Quaternion()).clone().invert();
     for (const joint of this.mappedJoints) {
       const dq = this.driver.j[joint].getWorldQuaternion(new THREE.Quaternion());
       const tq = this.j[joint].getWorldQuaternion(new THREE.Quaternion());
@@ -190,6 +204,14 @@ export class RiggedCharacter {
       this.restP[joint] = this.j[joint].getWorldPosition(new THREE.Vector3())
         .sub(modelPos).applyQuaternion(modelInv)
         .divideScalar(this.modelScale || 1);
+      /*
+       * Aynı konum karakter uzayında da tutuluyor: zırh parçaları orada
+       * yazıldığı için "kemik gövde ekseninden ne kadar önde" gibi soruları
+       * ancak bu uzayda doğru yanıtlanıyor. Model uzayında ileri ekseni +X
+       * olabiliyor ve z'ye bakmak yanlış yöne kaydırıyor.
+       */
+      this.restPC[joint] = this.restP[joint].clone()
+        .applyQuaternion(frameInv);
       this.offset[joint] = dq.invert().multiply(tq);  // sürücü⁻¹ · hedef
     }
     this.restHipY = LEG_REST_HIP_Y;
@@ -275,8 +297,16 @@ export class RiggedCharacter {
     if (footBone) {
       // Bilek yüksekliği modelin tabanına göre; restP modelin orijinine göre
       // olduğu için doğrudan kullanmak 2 cm gibi anlamsız bir değer veriyordu.
+      /*
+       * bbox dünya uzayında; restP ise modelin kökine göre ve ölçekten
+       * arındırılmış. İkisini doğrudan çıkarmak (eski kod) modelin dünya
+       * yüksekliğini de işin içine katıyor ve alt sınıra, 3 cm'e yapışıyordu:
+       * çizme ayağı sarmak yerine üstünde ince bir tepsi gibi duruyordu.
+       */
+      const modelY = this.model.getWorldPosition(new THREE.Vector3()).y;
+      const tabanLocal = (bbox.min.y - modelY) * inv;
       const fp = this.restP.footL;
-      if (fp) footAnkle = Math.max(fp.y - bbox.min.y * inv, 0.03);
+      if (fp) footAnkle = Math.max(fp.y - tabanLocal, 0.03);
       if (toeBone) {
         const modelInv2 = this.model.getWorldQuaternion(new THREE.Quaternion()).invert();
         const modelPos2 = this.model.getWorldPosition(new THREE.Vector3());
@@ -329,7 +359,7 @@ export class RiggedCharacter {
    */
   equipArmor(theme) {
     this.unequipArmor();
-    const pieces = buildArmorSet(theme, this.dim, this.restP);
+    const pieces = buildArmorSet(theme, this.dim, this.restPC);
     for (const [slot, def] of Object.entries(pieces)) {
       const joint = def.joint || ARMOR_SLOTS[slot];
       if (!joint || !this.j[joint]) continue;
@@ -351,28 +381,63 @@ export class RiggedCharacter {
   }
 
   /**
-   * Kuşanılan eşyalara göre zırh parçalarını göster/gizle.
+   * Krallık paletini kaydeder ama parça takmaz.
    *
-   * Parçalar bir kez üretilip kemiklere takılı kalıyor; kuşanma yalnızca
-   * görünürlüğü değiştiriyor. Her kuşanmada geometri yeniden üretmek
-   * mobilde gereksiz yük olurdu.
+   * Oyuncunun görünümü envanterden geliyor: hangi eşya kuşanılıysa o eşyanın
+   * kendi modeli üretiliyor. Bu yüzden oyuncuda tam set takmak yerine yalnızca
+   * tema saklanıyor; parçaları applyEquipmentVisuals üretiyor.
+   */
+  setArmorTheme(theme) {
+    this.armorTheme = theme;
+    return this;
+  }
+
+  /**
+   * Kuşanılan eşyalara göre karakterin parçalarını yeniden üretir.
    *
-   * @param {Object<string, ?object>} gorsel  ArmorSet parça grubu -> eşya
+   * Metin2'de her eşyanın kendi modeli vardır: kılıç yerine balta kuşanınca
+   * elde balta görünür, lamel zırh yerine pul göğüslük kuşanınca gövde
+   * değişir, zırh çıkarılınca karakter çıplak kalır. Burada da öyle: bir
+   * grubun eşyası değiştiğinde eski parçalar sökülüp yenisi eşyanın
+   * `gorunum`una göre üretiliyor.
+   *
+   * Üretim yalnızca gerçekten değişen grup için yapılıyor (anahtar
+   * karşılaştırması), böylece envanterin her dokunuşunda bütün zırh yeniden
+   * kurulmuyor.
+   *
+   * @param {Object<string, ?object>} gorsel  görünüm grubu -> kuşanılan eşya
    */
   applyEquipmentVisuals(gorsel) {
-    const gruplar = {
-      sword: ['sword'],
-      chest: ['chest', 'tassets', 'pauldronL', 'pauldronR', 'thighGuardL', 'thighGuardR'],
-      helmet: ['helmet'],
-      bracer: ['bracerL', 'bracerR', 'sleeveL', 'sleeveR'],
-      boot: ['bootL', 'bootR', 'greaveL', 'greaveR'],
-      cape: ['cape'],
-    };
-    for (const [anahtar, slotlar] of Object.entries(gruplar)) {
-      const acik = !!gorsel[anahtar];
-      for (const slot of slotlar) {
-        const e = this.equipment.get(slot);
-        if (e) e.piece.visible = acik;
+    this._gorunumAnahtar ||= {};
+    this._gorunumSlot ||= {};
+    const theme = this.armorTheme || this.cfg.armor;
+    if (!theme) return;
+
+    for (const grup of Object.keys(GRUP_SLOTLARI)) {
+      const item = gorsel[grup] || null;
+      // Aynı model + aynı kademe ise dokunma
+      const anahtar = item ? `${item.gorunum || item.tplId}:${item.kademe}` : '';
+      if (this._gorunumAnahtar[grup] === anahtar) continue;
+      this._gorunumAnahtar[grup] = anahtar;
+
+      for (const slot of this._gorunumSlot[grup] || GRUP_SLOTLARI[grup]) this.unequip(slot);
+      this._gorunumSlot[grup] = [];
+      if (grup === 'sword') this.weaponBase = this.weaponTip = null;
+      if (!item) continue;
+
+      const ctx = makeContext(theme, this.dim, this.restPC, item.kademe);
+      const parcalar = buildVisual(grup, item.gorunum, ctx);
+      for (const [slot, def] of Object.entries(parcalar)) {
+        const joint = def.joint || ARMOR_SLOTS[slot];
+        if (!joint || !this.j[joint]) continue;
+        this.equip(slot, def.piece, joint, def.offset);
+        this._gorunumSlot[grup].push(slot);
+      }
+      // Kılıç izi namlunun uçlarını izliyor
+      const silah = parcalar.sword;
+      if (silah) {
+        this.weaponBase = silah.piece.userData.weaponBase;
+        this.weaponTip = silah.piece.userData.weaponTip;
       }
     }
     this.silahVar = !!gorsel.sword;
@@ -419,6 +484,17 @@ export class RiggedCharacter {
     const cur = this.equipment.get(slot);
     if (!cur) return;
     cur.bone.remove(cur.piece);
+    /*
+     * Ekipman değiştikçe parçalar yeniden üretiliyor; sökülen parçanın
+     * geometrisi bırakılmazsa her kuşanmada GPU'da birikirdi. Dokular
+     * paylaşılan önbellekten geldiği için materyal.dispose() onlara
+     * dokunmuyor.
+     */
+    cur.piece.traverse((o) => {
+      o.geometry?.dispose();
+      if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+      else o.material?.dispose();
+    });
     this.equipment.delete(slot);
   }
 
@@ -471,7 +547,7 @@ export class RiggedCharacter {
     const hipDelta = (this.driver.j.hips.position.y - LEG_REST_HIP_Y) * s;
     this.model.position.y = (this._baseY ??= this.model.position.y) + hipDelta;
     this.model.position.z = this.driver.j.hips.position.z * s;
-    this.model.rotation.y = (this.cfg.rotationY || 0) + (this.driver._curRootYaw || 0);
+    this.model.rotation.y = (this.rotationY || 0) + (this.driver._curRootYaw || 0);
 
     return ev;
   }

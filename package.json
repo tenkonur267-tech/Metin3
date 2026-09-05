@@ -1,6 +1,7 @@
 {
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "playwright": "^1.63.0"
   },
   "name": "metin3",
   "version": "0.1.0",

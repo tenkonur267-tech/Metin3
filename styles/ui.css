@@ -592,7 +592,7 @@ html, body {
 .inv-equip { display: flex; flex-direction: column; gap: 8px; }
 .inv-slots {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 6px;
 }
 .inv-slot {

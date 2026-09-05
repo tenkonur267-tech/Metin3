@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { getTexture } from '../core/Textures.js';
+import { buildDropModel } from './ArmorSet.js';
 
 const _v = new THREE.Vector3();
 
@@ -16,7 +17,7 @@ export class LootDrop {
    * @param {THREE.Vector3} pos
    * @param {Terrain} terrain
    */
-  constructor(item, pos, terrain) {
+  constructor(item, pos, terrain, theme = null) {
     this.item = item;
     this.terrain = terrain;
     this.alinabilir = false;     // düşme animasyonu bitmeden alınamaz
@@ -32,14 +33,27 @@ export class LootDrop {
     this.taban = y;
     this.group.position.set(pos.x, y + 1.2, pos.z);
 
-    // Eşya parçası
-    const geo = new THREE.OctahedronGeometry(0.16, 0);
-    this.mat = new THREE.MeshLambertMaterial({
-      color: renk,
-      emissive: renk.clone().multiplyScalar(0.45),
-    });
-    this.mesh = new THREE.Mesh(geo, this.mat);
-    this.mesh.castShadow = true;
+    /*
+     * Eşya parçası: Metin2'de yere düşen eşya kendi modeliyle görünür, bu
+     * yüzden görünümü olan eşyalar için gerçek model küçültülerek konuyor.
+     * Takıların modeli yok; onlar kademe renginde bir kristal olarak düşüyor.
+     */
+    const model = theme ? buildDropModel(item, theme) : buildDropModel(item);
+    if (model) {
+      this.mesh = model;
+      this.mat = null;
+      // Gerçek model dik dursun, yalnızca kendi ekseninde dönsün
+      this.mesh.rotation.z = 0.35;
+      this.gercekModel = true;
+    } else {
+      const geo = new THREE.OctahedronGeometry(0.16, 0);
+      this.mat = new THREE.MeshLambertMaterial({
+        color: renk,
+        emissive: renk.clone().multiplyScalar(0.45),
+      });
+      this.mesh = new THREE.Mesh(geo, this.mat);
+      this.mesh.castShadow = true;
+    }
     this.group.add(this.mesh);
 
     // Zeminde kademe renginde hale
@@ -79,7 +93,7 @@ export class LootDrop {
     }
 
     this.mesh.rotation.y += dt * 1.7;
-    this.mesh.rotation.x += dt * 0.8;
+    if (!this.gercekModel) this.mesh.rotation.x += dt * 0.8;
     this.aura.position.y = this.taban - g.position.y + 0.03;
     this.aura.rotation.y += dt * 0.9;
     this.auraMat.opacity = 0.42 + Math.sin(this.time * 3.0) * 0.12;
@@ -88,7 +102,12 @@ export class LootDrop {
     const kalan = this.omur - this.time;
     if (kalan < 4) {
       const k = Math.max(0, kalan / 4);
-      this.mat.opacity = k; this.mat.transparent = true;
+      this.mesh.traverse?.((o) => {
+        if (!o.material) return;
+        o.material.transparent = true;
+        o.material.opacity = k;
+      });
+      if (this.mat) { this.mat.opacity = k; this.mat.transparent = true; }
       this.auraMat.opacity *= k;
       if (kalan <= 0) return true;
     }
@@ -105,8 +124,11 @@ export class LootDrop {
 
   dispose(scene) {
     scene.remove(this.group);
-    this.mesh.geometry.dispose();
-    this.mat.dispose();
+    this.mesh.traverse((o) => {
+      o.geometry?.dispose();
+      if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+      else o.material?.dispose();
+    });
     this.aura.geometry.dispose();
     this.auraMat.dispose();
   }
