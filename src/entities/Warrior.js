@@ -45,6 +45,85 @@ function lerpPose(out, a, b, t) {
 }
 
 const smooth = THREE.MathUtils.smoothstep;
+const TAU = Math.PI * 2;
+const clamp = THREE.MathUtils.clamp;
+
+/* ------------------------------------------------------------------ */
+/* Bacak ters kinematiği (IK)                                          */
+/*                                                                     */
+/* Uyluk/baldır açılarını elle yazmak, ayağı sabit bir kalça            */
+/* yüksekliğinden sarkaç gibi savurur: basma evresi oluşmaz, ayak       */
+/* zeminde kayar. Onun yerine ayağın YÖRÜNGESİNİ yazıp açıları buradan  */
+/* çözüyoruz — basma evresinde ayak yerde durur, gövde onun üstünden    */
+/* geçer.                                                              */
+/* ------------------------------------------------------------------ */
+const LEG = { thigh: 0.45, shin: 0.43, hipDrop: 0.07, restHipY: 0.98 };
+
+/**
+ * Yürüyüş parametreleri.
+ *
+ * `contact` bir bacağın döngü içinde yerde kaldığı oran. Kaymasız yürüyüş
+ * için döngü başına kat edilen mesafe zorunlu olarak `stride / contact`
+ * olur — faz hızı bundan türetildiği için kayma tanım gereği sıfırlanır.
+ * `hipY` de adım boyunu sınırlar: ayak, kalçadan bacak boyundan uzağa
+ * uzanamaz.
+ */
+const GAIT = {
+  walk: { stride: 0.70, contact: 0.62, lift: 0.13, hipY: 0.84, bob: 0.018 },
+  run: { stride: 0.96, contact: 0.38, lift: 0.30, hipY: 0.80, bob: 0.050 },
+};
+for (const g of Object.values(GAIT)) g.cycleDistance = g.stride / g.contact;
+
+/**
+ * İki kemikli bacak IK'sı: ayağın uyluk eklemine göre hedefinden uyluk ve
+ * baldır açılarını kosinüs teoremiyle çözer. Diz daima öne bükülür.
+ * @param {number} dz  ayağın ileri/geri konumu (+ ileri)
+ * @param {number} dy  ayağın düşey konumu (negatif = kalçanın altında)
+ */
+function legAngles(dz, dy) {
+  const a = LEG.thigh, b = LEG.shin;
+  let d = Math.hypot(dz, dy);
+  const maxD = (a + b) * 0.998;
+  const minD = Math.abs(a - b) + 0.03;
+  if (d > maxD) { const k = maxD / d; dz *= k; dy *= k; d = maxD; }
+  if (d < minD) d = minD;
+  // Uyluk ekseni yerel -Y; +X dönüşü bacağı geriye atar
+  const toFoot = Math.atan2(-dz, -dy);
+  const cosA = clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1);
+  const cosG = clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1);
+  return { thigh: toFoot - Math.acos(cosA), shin: Math.PI - Math.acos(cosG) };
+}
+
+/** Ayak yörüngesi: basma evresinde yerde geriye, salınımda havada ileri. */
+function footPath(ph, g) {
+  const t = ((ph % TAU) + TAU) % TAU;
+  const stance = TAU * g.contact;
+  if (t < stance) {
+    const u = t / stance;
+    return { dz: g.stride * (0.5 - u), lift: 0, u, planted: true };
+  }
+  const u = (t - stance) / (TAU - stance);
+  return { dz: g.stride * (u - 0.5), lift: g.lift * Math.sin(Math.PI * u), u, planted: false };
+}
+
+/** Ayak bileği: topuk vuruşu, düz basış, parmak itişi, salınımda toparlanma. */
+function anklePitch(s) {
+  if (s.planted) {
+    return -0.16 + smooth(s.u, 0, 0.30) * 0.16 + smooth(s.u, 0.62, 1) * 0.50;
+  }
+  return 0.50 - smooth(s.u, 0, 0.45) * 0.66;
+}
+
+/** Bir bacağı IK ile yerleştirir; ayak yörünge bilgisini döndürür. */
+function placeLeg(p, S, ph, g, hipY) {
+  const s = footPath(ph, g);
+  const H = hipY - LEG.hipDrop;
+  const { thigh, shin } = legAngles(s.dz, -(H - s.lift));
+  p['thigh' + S][0] = thigh;
+  p['shin' + S][0] = shin;
+  p['foot' + S][0] = anklePitch(s) - (thigh + shin);
+  return s;
+}
 
 /* ------------------------------------------------------------------ */
 /* Poz kütüphanesi                                                      */
@@ -119,13 +198,21 @@ const POSES = {
     p.shinL[0] = -0.42; p.shinR[0] = -0.36;
   },
 
-  /** Yürüme. */
-  walk(p, t, ctx) {
-    const s = t * 4.4;
-    const sw = Math.sin(s), cw = Math.cos(s);
-    p._rootY = Math.abs(Math.sin(s)) * 0.04 - 0.025;
-    p._rootRoll = cw * 0.035;
-    p.spine[0] = 0.08;
+  /**
+   * Yürüme. `ph` bacak döngüsünün fazı (radyan) — zamana değil kat edilen
+   * yola bağlı ilerler, böylece ayaklar zeminde kaymaz.
+   */
+  walk(p, ph, ctx) {
+    const g = GAIT.walk;
+    const sw = Math.sin(ph), cw = Math.cos(ph);
+    // Kalça iki adımda bir alçalıp yükselir; IK bunu diz bükerek soğurur,
+    // ayak yine yerde kalır.
+    const hipY = g.hipY + Math.cos(ph * 2) * g.bob;
+    p._rootY = hipY - LEG.restHipY;
+    p._rootZ = 0;
+    p._rootRoll = cw * 0.03;
+
+    p.spine[0] = 0.10;
     p.chest[1] = -sw * 0.11;
     p.hips[1] = sw * 0.11;
     p.head[1] = sw * 0.05;
@@ -148,26 +235,25 @@ const POSES = {
       p.foreArmR[1] = -0.28;
     }
 
-    p.thighL[0] = sw * 0.60;
-    p.thighR[0] = -sw * 0.60;
-    p.shinL[0] = -Math.max(0, -sw) * 0.85 - 0.06;
-    p.shinR[0] = -Math.max(0, sw) * 0.85 - 0.06;
-    p.footL[0] = Math.max(0, sw) * 0.34;
-    p.footR[0] = Math.max(0, -sw) * 0.34;
+    placeLeg(p, 'L', ph, g, hipY);
+    placeLeg(p, 'R', ph + Math.PI, g, hipY);
+    p.thighL[2] = 0.04; p.thighR[2] = -0.04;
   },
 
-  /** Koşma: geniş adım, öne eğik gövde. */
-  run(p, t, ctx) {
-    const s = t * 7.2;
-    const sw = Math.sin(s), cw = Math.cos(s);
-    p._rootY = Math.abs(Math.sin(s)) * 0.085 - 0.035;
-    p._rootZ = 0.06;
-    p._rootRoll = cw * 0.055;
-    p.spine[0] = 0.27;
-    p.chest[0] = 0.07;
+  /** Koşma: geniş adım, öne eğik gövde. Fazı walk ile aynı mantıkta. */
+  run(p, ph, ctx) {
+    const g = GAIT.run;
+    const sw = Math.sin(ph), cw = Math.cos(ph);
+    const hipY = g.hipY + Math.cos(ph * 2) * g.bob;
+    p._rootY = hipY - LEG.restHipY;
+    p._rootZ = 0;                 // öne eğilme gövdeden gelir, kalçadan değil
+    p._rootRoll = cw * 0.05;
+
+    p.spine[0] = 0.30;
+    p.chest[0] = 0.08;
     p.chest[1] = -sw * 0.22;
     p.hips[1] = sw * 0.22;
-    p.head[0] = -0.28;
+    p.head[0] = -0.32;
 
     p.shoulderL[2] = 0.26; p.shoulderR[2] = -0.26;
     p.armL[0] = -sw * 1.00; p.armL[2] = 0.30;
@@ -188,12 +274,9 @@ const POSES = {
       p.foreArmR[1] = -0.32;
     }
 
-    p.thighL[0] = sw * 1.00 - 0.10;
-    p.thighR[0] = -sw * 1.00 - 0.10;
-    p.shinL[0] = -Math.max(0, -sw) * 1.5 - 0.18;
-    p.shinR[0] = -Math.max(0, sw) * 1.5 - 0.18;
-    p.footL[0] = Math.max(0, sw) * 0.48;
-    p.footR[0] = Math.max(0, -sw) * 0.48;
+    placeLeg(p, 'L', ph, g, hipY);
+    placeLeg(p, 'R', ph + Math.PI, g, hipY);
+    p.thighL[2] = 0.05; p.thighR[2] = -0.05;
   },
 
   /**
@@ -442,7 +525,19 @@ export class Warrior {
 
     this.state = 'idle';
     this.stateTime = 0;
-    this.animTime = 0;
+    this.animTime = 0;      // döngüsel olmayan pozlar (nefes alma vb.) için
+
+    /*
+     * Bacak döngüsünün fazı. Zamanla değil, kat edilen yolla ilerler:
+     * bir tam döngüde (iki adım) kat edilen mesafe pozun bacak açılımından
+     * geliyor (adım = 2 · bacak boyu · sin(kalça açısı)). Faz hızı buna
+     * bölünmezse ayaklar zeminde kayar — yürüyüşü bozan şey buydu.
+     */
+    this.locoPhase = 0;
+    this.cycleDistance = {
+      walk: GAIT.walk.cycleDistance * this.scale,
+      run: GAIT.run.cycleDistance * this.scale,
+    };
     this.attackVariant = 0;
     this.durations = {
       attack: 0.58, spin: 1.05, tripleCut: 1.15, dash: 0.42, hit: 0.36, die: 0.9,
@@ -758,8 +853,8 @@ export class Warrior {
     p._rootY = p._rootZ = p._rootRoll = p._rootYaw = 0;
     const c = this._ctx;
     switch (state) {
-      case 'walk': POSES.walk(p, this.animTime, c); break;
-      case 'run': POSES.run(p, this.animTime, c); break;
+      case 'walk': POSES.walk(p, this.locoPhase, c); break;
+      case 'run': POSES.run(p, this.locoPhase, c); break;
       case 'combatIdle': POSES.combatIdle(p, this.animTime, c); break;
       case 'attack': POSES.attack(p, Math.min(1, time / this.durations.attack), this.attackVariant, c); break;
       case 'spin': POSES.spin(p, Math.min(1, time / this.durations.spin), c); break;
@@ -780,9 +875,20 @@ export class Warrior {
    */
   update(dt, speed = 0) {
     this.stateTime += dt;
-    const cyc = this.state === 'run' ? Math.max(0.55, speed / 7)
-      : this.state === 'walk' ? Math.max(0.5, speed / 3.2) : 1;
-    this.animTime += dt * cyc;
+    this.animTime += dt;
+
+    // Bacak fazını hıza göre ilerlet: hız / döngü mesafesi = saniyedeki döngü
+    const cd = this.cycleDistance[this.state];
+    if (cd) {
+      // Durur gibi olurken bile adım tamamlansın diye küçük bir taban hız
+      const v = Math.max(speed, 0.35);
+      this.locoPhase += dt * (v / cd) * Math.PI * 2;
+      if (this.locoPhase > Math.PI * 2) this.locoPhase -= Math.PI * 2;
+    } else {
+      // Hareket bitince faz sıfıra yakın bir yere dönsün ki sonraki
+      // yürüyüş ayakların yanyana olduğu noktadan başlasın
+      this.locoPhase *= 1 - Math.min(1, dt * 6);
+    }
 
     if (this.blend < 1) this.blend = Math.min(1, this.blend + dt / this.blendDur);
 
@@ -833,8 +939,8 @@ export class Warrior {
     for (let i = 0; i < this.tassets.length; i++) {
       const isFrontBack = i < 2;
       const swing = isFrontBack
-        ? Math.sin(this.animTime * (this.state === 'run' ? 7.2 : 4.4) + i * Math.PI) * speed * 0.028
-        : Math.sin(this.animTime * 4.0 + i) * speed * 0.016;
+        ? Math.sin(this.locoPhase + i * Math.PI) * speed * 0.028
+        : Math.sin(this.locoPhase * 0.5 + i) * speed * 0.016;
       const target = swing - yawDelta * 1.4;
       this.dyn.tassetV[i] += (target - this.dyn.tasset[i]) * 26 * dt;
       this.dyn.tassetV[i] *= 1 - Math.min(0.9, 9 * dt);

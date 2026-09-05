@@ -22,8 +22,8 @@ export class PlayerController {
     this.yaw = 0;                 // karakterin baktığı yön
     this.targetYaw = 0;
     this.radius = 0.42;
-    this.walkSpeed = 3.4;
-    this.runSpeed = 7.2;
+    this.walkSpeed = 1.75;   // gerçek bir yürüyüş temposu
+    this.runSpeed = 7.0;
     this.gravity = -22;
     this.jumpSpeed = 7.4;
     this.grounded = true;
@@ -272,7 +272,7 @@ export class PlayerController {
 
   /** Hıza göre uygun hareket animasyonu. */
   _locomotionState() {
-    return this.speed > 4.2 ? 'run' : this.speed > 0.2 ? 'walk' : 'idle';
+    return this.speed > 3.0 ? 'run' : this.speed > 0.2 ? 'walk' : 'idle';
   }
 
   _updateCamera(dt) {
