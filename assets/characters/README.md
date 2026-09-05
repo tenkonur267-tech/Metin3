@@ -65,8 +65,20 @@ Kemik adı verilmezse iz efekti kapatılır. Kemik adlarını konsolda görmek i
 window.game.player.model.traverse(o => o.isBone && console.log(o.name))
 ```
 
-## Lisans
+## Depodaki model
+
+`knight.glb` — KayKit Adventurers Character Pack, Kay Lousberg
+(www.kaylousberg.com), **CC0 1.0** (kamu malı, atıf gerekmez). Lisans metni:
+`knight-LICENSE.txt`.
+
+76 animasyon içeriyor; oyunda kullanılan eşleme `warrior.json` içinde açıkça
+yazılı. Çift el kılıç modelin içinde geliyor, kalkanlar ve tek el kılıç
+`hideNodes` ile gizleniyor.
+
+Prosedürel savaşçıya dönmek için `warrior.json` içinde `"enabled": false`
+yapmanız yeterli.
+
+## Kendi modeliniz için lisans
 
 Buraya koyduğunuz modelin kullanım iznine sahip olduğunuzdan emin olun ve
-lisansını bu klasöre bir metin dosyası olarak ekleyin. Depoda varsayılan
-olarak model bulunmaz.
+lisansını bu klasöre bir metin dosyası olarak ekleyin.

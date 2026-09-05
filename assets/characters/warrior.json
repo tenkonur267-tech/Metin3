@@ -1,38 +1,55 @@
 {
   "_aciklama": [
-    "Kendi karakter modelinizi kullanmak için: 'enabled' değerini true yapın",
-    "ve 'file' alanına bu klasördeki model dosyanızın adını yazın.",
-    "Ayrıntılar için README.md'ye bakın. Kapalıyken oyun prosedürel",
-    "savaşçıyla çalışır."
+    "KayKit Adventurers Character Pack (Kay Lousberg) - CC0 1.0.",
+    "Lisans metni: knight-LICENSE.txt",
+    "Kapatmak için enabled: false yapın; oyun prosedürel savaşçıya döner."
   ],
-  "enabled": false,
-  "file": "warrior.glb",
-  "animationFiles": [],
+  "enabled": true,
+  "file": "knight.glb",
+
   "height": 1.95,
   "yOffset": 0,
   "rotationY": 0,
+
   "clipWalkSpeed": 1.75,
   "clipRunSpeed": 7.0,
-  "damageWindow": [
-    0.3,
-    0.55
+  "damageWindow": [0.34, 0.62],
+
+  "showNodes": ["2H_Sword"],
+  "hideNodes": [
+    "1H_Sword", "1H_Sword_Offhand",
+    "Badge_Shield", "Rectangle_Shield", "Round_Shield", "Spike_Shield"
   ],
-  "weaponBone": "mixamorigRightHand",
-  "weaponBaseOffset": [
-    0,
-    0.1,
-    0
+
+  "weaponBone": "handslot.r",
+  "weaponBaseOffset": [0, 0.15, 0],
+  "weaponTipOffset": [0, 1.55, 0],
+
+  "attackClips": [
+    "2H_Melee_Attack_Slice",
+    "2H_Melee_Attack_Chop",
+    "2H_Melee_Attack_Stab"
   ],
-  "weaponTipOffset": [
-    0,
-    1.2,
-    0
-  ],
+
+  "speed": {
+    "attack": 1.45,
+    "spin": 1.15,
+    "tripleCut": 1.0,
+    "hit": 1.0,
+    "die": 1.0,
+    "dash": 1.0
+  },
+
   "clips": {
-    "idle": "",
-    "walk": "",
-    "run": "",
-    "attack": "",
-    "die": ""
+    "idle": "2H_Melee_Idle",
+    "combatIdle": "2H_Melee_Idle",
+    "walk": "Walking_A",
+    "run": "Running_A",
+    "spin": "2H_Melee_Attack_Spin",
+    "tripleCut": "2H_Melee_Attack_Spinning",
+    "jump": "Jump_Idle",
+    "hit": "Hit_A",
+    "die": "Death_A",
+    "dash": "Dodge_Forward"
   }
 }

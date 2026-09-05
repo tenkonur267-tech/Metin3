@@ -29,9 +29,26 @@ const bundle = await esbuild.build({
   alias: { three: r('vendor/three/three.module.js') },
   write: false,
 });
-// Paket tek dosya olarak dağıtıldığı için yanında assets klasörü olmaz;
-// karakter modeli aramasını baştan kapatıyoruz.
-const js = 'globalThis.__METIN3_SINGLE_FILE__=true;\n' + bundle.outputFiles[0].text;
+/*
+ * Tek dosya sürümünde yanında assets klasörü olmadığı için karakter modeli
+ * ağdan istenemez; etkinse doğrudan pakete gömülüyor. Böylece paylaşılan
+ * bağlantıda da oyundaki gerçek karakter görünüyor.
+ */
+let preamble = 'globalThis.__METIN3_SINGLE_FILE__=true;\n';
+try {
+  const cfg = JSON.parse(await fs.readFile(r('assets/characters/warrior.json'), 'utf8'));
+  if (cfg.enabled && cfg.file) {
+    const modelPath = r('assets/characters', cfg.file);
+    const bytes = await fs.readFile(modelPath);
+    const mime = cfg.file.endsWith('.glb') ? 'model/gltf-binary' : 'application/octet-stream';
+    const embedded = { ...cfg, file: `data:${mime};base64,${bytes.toString('base64')}` };
+    preamble += `globalThis.__METIN3_CHARACTER__=${JSON.stringify(embedded)};\n`;
+    console.log(`  gömülü karakter: ${cfg.file} (${(bytes.length / 1048576).toFixed(2)} MB)`);
+  }
+} catch (err) {
+  console.log('  gömülü karakter yok:', err.message);
+}
+const js = preamble + bundle.outputFiles[0].text;
 
 /* 2. Stil ve oyun işaretlemesini al */
 const css = await fs.readFile(r('styles/ui.css'), 'utf8');

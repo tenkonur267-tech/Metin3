@@ -16,8 +16,22 @@ const CONFIG_URL = 'assets/characters/warrior.json';
  * @returns {Promise<{character: ModelCharacter, cfg: object}|null>}
  */
 export async function tryLoadCharacterModel(onStatus = () => {}) {
-  // Tek dosyalık paket sürümünde yanına konacak bir assets klasörü yok;
-  // olmayan dosyayı istemek konsola gereksiz 404 düşürür.
+  // Tek dosyalık paket sürümünde model, yapılandırmasıyla birlikte pakete
+  // gömülür (bkz. tools/build-single.mjs); ağdan istenecek bir şey yoktur.
+  const embedded = globalThis.__METIN3_CHARACTER__;
+  if (embedded) {
+    try {
+      onStatus('Karakter modeli hazırlanıyor…');
+      const character = await ModelCharacter.load(embedded);
+      console.info('[karakter] gömülü model yüklendi');
+      console.info('[karakter] animasyon eşleşmesi:\n  ' + character.clipReport.join('\n  '));
+      return { character, cfg: embedded };
+    } catch (err) {
+      console.warn('[karakter] gömülü model yüklenemedi:', err.message);
+      return null;
+    }
+  }
+  // Yanına konacak bir assets klasörü yoksa olmayan dosyayı isteme
   if (globalThis.__METIN3_SINGLE_FILE__) return null;
 
   let cfg;

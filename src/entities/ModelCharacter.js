@@ -47,7 +47,7 @@ function normalize(name) {
  * Klipleri oyun durumlarına eşler.
  * @returns {{map: Object, attacks: THREE.AnimationClip[], report: string[]}}
  */
-function matchClips(clips, overrides = {}) {
+function matchClips(clips, overrides = {}, attackList = null) {
   const byNorm = clips.map((c) => ({ clip: c, n: normalize(c.name) }));
   const used = new Set();
   const map = {};
@@ -61,16 +61,32 @@ function matchClips(clips, overrides = {}) {
     else report.push(`${state} <- "${wanted}" BULUNAMADI`);
   }
 
-  // Saldırı varyantları: eşleşen bütün klipler zincire girer
+  /*
+   * Saldırı zinciri. Paketler çoğu zaman tek elli, çift elli, silahsız ve
+   * menzilli saldırıları bir arada taşıdığı için ada bakarak toplamak yanlış
+   * karışımlar üretiyor; bu yüzden yapılandırmada liste verilebiliyor ve
+   * verildiğinde otomatik toplama devre dışı kalıyor.
+   */
   const attacks = [];
-  for (const b of byNorm) {
-    if (used.has(b.clip)) continue;
-    if (CLIP_SYNONYMS.attack.some((s) => b.n.includes(s))) attacks.push(b.clip);
+  if (attackList && attackList.length) {
+    for (const wanted of attackList) {
+      const hit = clips.find((c) => c.name === wanted)
+        || byNorm.find((b) => b.n === normalize(wanted))?.clip;
+      if (hit) { attacks.push(hit); used.add(hit); }
+      else report.push(`saldırı "${wanted}" BULUNAMADI`);
+    }
+  } else {
+    for (const b of byNorm) {
+      if (used.has(b.clip)) continue;
+      if (CLIP_SYNONYMS.attack.some((s) => b.n.includes(s))) attacks.push(b.clip);
+    }
+    attacks.sort((a, c) => a.name.localeCompare(c.name, undefined, { numeric: true }));
   }
-  attacks.sort((a, c) => a.name.localeCompare(c.name, undefined, { numeric: true }));
 
   for (const [state, syns] of Object.entries(CLIP_SYNONYMS)) {
     if (map[state]) continue;
+    // Zincir açıkça verildiyse 'attack' için ada bakarak tahmin yürütme
+    if (state === 'attack' && attacks.length) continue;
     let best = null, bestScore = -1;
     for (const b of byNorm) {
       if (used.has(b.clip)) continue;
@@ -128,7 +144,7 @@ export class ModelCharacter {
 
     /* -- Animasyon -- */
     this.mixer = new THREE.AnimationMixer(scene);
-    const { map, attacks, report } = matchClips(clips, cfg.clips || {});
+    const { map, attacks, report } = matchClips(clips, cfg.clips || {}, cfg.attackClips);
     this.clipMap = map;
     this.attackClips = attacks;
     this.clipReport = report;
@@ -148,11 +164,17 @@ export class ModelCharacter {
     this.current = null;
     this.fade = cfg.fade ?? 0.15;
 
-    // Bir kez oynanan hareketlerin süresi kliplerden gelir
+    /*
+     * Oynatma hızı. Hazır klipler oyunun temposuna göre yavaş kalabiliyor;
+     * `speed` ile hızlandırıldığında durum süresinin de kısalması gerekiyor,
+     * yoksa hareket biter ama oyuncu kilitli kalır.
+     */
+    this.speedScale = cfg.speed || {};
     this.durations = {};
     for (const st of ONE_SHOT) {
       const a = this._actionFor(st, 0);
-      if (a) this.durations[st] = a.getClip().duration;
+      if (!a) continue;
+      this.durations[st] = a.getClip().duration / (this.speedScale[st] || 1);
     }
 
     /*
@@ -165,8 +187,29 @@ export class ModelCharacter {
       run: cfg.clipRunSpeed ?? 7.0,
     };
 
+    this._applyNodeVisibility();
     this._setupWeapon();
     this.setState('idle', { force: true });
+  }
+
+  /**
+   * Karakter paketleri genelde bütün silah ve kalkan çeşitlerini modelin
+   * içinde taşır ve hepsi birden görünür gelir. `show` listesindekiler açık,
+   * geri kalan eşleşenler kapalı hale getiriliyor.
+   */
+  _applyNodeVisibility() {
+    const { showNodes, hideNodes } = this.cfg;
+    if (!showNodes && !hideNodes) return;
+    const show = new Set((showNodes || []).map(normalize));
+    const hide = new Set((hideNodes || []).map(normalize));
+    const found = [];
+    this.model.traverse((o) => {
+      if (!o.name) return;
+      const n = normalize(o.name);
+      if (show.has(n)) { o.visible = true; found.push('+' + o.name); }
+      else if (hide.has(n)) { o.visible = false; found.push('-' + o.name); }
+    });
+    if (found.length) console.info('[karakter] görünürlük:', found.join(' '));
   }
 
   _makeAction(clip, state) {
@@ -220,6 +263,10 @@ export class ModelCharacter {
     if (name === 'attack') this.attackVariant = opts.variant ?? 0;
 
     let next = this._actionFor(name, this.attackVariant);
+    // Zincirdeki her savurma farklı uzunlukta olabilir
+    if (name === 'attack' && next) {
+      this.durations.attack = next.getClip().duration / (this.speedScale.attack || 1);
+    }
     // Klip yoksa en yakın makul karşılığa düş
     if (!next) {
       const fallback = { combatIdle: 'idle', run: 'walk', walk: 'idle', jump: 'idle',
@@ -244,10 +291,13 @@ export class ModelCharacter {
     this.stateTime += dt;
     this.animTime += dt;
 
-    // Yürüyüş/koşu kliplerini gerçek hıza göre oynat: ayak kaymasın
+    // Yürüyüş/koşu kliplerini gerçek hıza göre oynat: ayak kaymasın.
+    // Diğer hareketlerde yapılandırmadan gelen sabit hız çarpanı geçerli.
     if (this.current) {
       const ref = this.clipSpeed[this.state];
-      this.current.timeScale = ref ? THREE.MathUtils.clamp(speed / ref, 0.25, 2.5) : 1;
+      this.current.timeScale = ref
+        ? THREE.MathUtils.clamp(speed / ref, 0.25, 2.5)
+        : (this.speedScale[this.state] || 1);
     }
     this.mixer.update(dt);
 
@@ -282,13 +332,39 @@ export class ModelCharacter {
   /* ---------------- Yükleme ---------------- */
 
   /**
+   * Model biçimini belirler.
+   *
+   * Uzantıya bakmak yetmiyor: tek dosyalık pakette model bir `data:` URI'si
+   * olarak gömülü geliyor ve orada nokta karakteri base64 verisinin içinde
+   * geçiyor. Bu yüzden data URI'lerinde MIME türüne bakılıyor.
+   *
+   * @param {string} url
+   * @returns {string} 'glb' | 'gltf' | 'fbx' | tanınmayan girdinin kendisi
+   */
+  static formatOf(url) {
+    if (url.startsWith('data:')) {
+      // MIME, ilk ';' veya ',' karakterine kadar sürer
+      const semi = url.indexOf(';');
+      const comma = url.indexOf(',');
+      const ends = [semi, comma].filter((i) => i > 0);
+      const end = ends.length ? Math.min(...ends) : url.length;
+      const mime = url.slice(5, end).toLowerCase();
+      if (mime.includes('gltf-binary')) return 'glb';
+      if (mime.includes('gltf')) return 'gltf';
+      if (mime.includes('fbx')) return 'fbx';
+      return mime || 'data';
+    }
+    return url.split('?')[0].split('.').pop().toLowerCase();
+  }
+
+  /**
    * @param {object} cfg  { file, scale, height, yOffset, rotationY, clips,
    *                        weaponBone, clipWalkSpeed, clipRunSpeed }
    * @returns {Promise<ModelCharacter>}
    */
   static async load(cfg) {
     const url = cfg.file;
-    const ext = url.split('?')[0].split('.').pop().toLowerCase();
+    const ext = ModelCharacter.formatOf(url);
     let scene, clips;
 
     if (ext === 'glb' || ext === 'gltf') {
@@ -300,12 +376,12 @@ export class ModelCharacter {
       scene = fbx;
       clips = fbx.animations || [];
     } else {
-      throw new Error(`Desteklenmeyen model biçimi: .${ext} (glb, gltf veya fbx bekleniyor)`);
+      throw new Error(`Desteklenmeyen model biçimi: ${ext} (glb, gltf veya fbx bekleniyor)`);
     }
 
     // Ek animasyon dosyaları (ayrı indirilen saldırı/ölüm klipleri gibi)
     for (const extra of cfg.animationFiles || []) {
-      const e = extra.split('?')[0].split('.').pop().toLowerCase();
+      const e = ModelCharacter.formatOf(extra);
       const loaded = e === 'fbx'
         ? await new FBXLoader().loadAsync(extra)
         : await new GLTFLoader().loadAsync(extra);
