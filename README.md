@@ -9,12 +9,24 @@ Kurulum ve derleme adımı yok. Depoyu bir statik sunucudan servis edip
 `index.html`'i açmak yeterli:
 
 ```bash
-python3 -m http.server 8080
+npm start          # python3 -m http.server 8080
 # tarayıcıda: http://localhost:8080
 ```
 
 Doğrudan `file://` ile açmak çalışmaz — ES modülleri ve import map için
 HTTP gerekir.
+
+### Tek dosyalık sürüm
+
+Paylaşmak veya çevrimdışı açmak için her şeyin (three.js dahil) gömülü
+olduğu tek bir HTML üretilebilir:
+
+```bash
+npm install        # yalnızca esbuild
+npm run build
+```
+
+`dist/index.html` artık `file://` ile de dahil doğrudan açılabilir.
 
 ## Kontroller
 

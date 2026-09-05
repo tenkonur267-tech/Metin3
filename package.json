@@ -1,0 +1,14 @@
+{
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "name": "metin3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Metin2'den esinlenen, tarayıcıda çalışan mobil uyumlu 3B rol yapma oyunu",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080",
+    "build": "node tools/build-single.mjs"
+  }
+}
