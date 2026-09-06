@@ -1,0 +1,40 @@
+{
+  "_aciklama": [
+    "KayKit Adventurers — Knight (CC0, Kay Lousberg). Bkz. knight-LICENSE.txt.",
+    "knight-slim.glb: tools/prune-glb.mjs ile 73 klipten 12'ye indirilmiş sürüm.",
+    "Modüler paket: miğfer, pelerin, kılıç ve kalkanlar ayrı mesh; kuşanılan",
+    "eşyaya göre 'parts' eşlemesiyle açılıp kapanıyor.",
+    "Çıplak taban gövdeye dönmek için: kind 'rigged', file 'base_male.glb'."
+  ],
+  "enabled": true,
+  "kind": "animated",
+  "file": "knight-slim.glb",
+  "height": 1.95,
+  "clips": {
+    "idle": "Idle",
+    "combatIdle": "2H_Melee_Idle",
+    "walk": "Walking_A",
+    "run": "Running_A",
+    "spin": "2H_Melee_Attack_Spin",
+    "hit": "Hit_A",
+    "die": "Death_A",
+    "jump": "Jump_Full_Short",
+    "dash": "Dodge_Forward"
+  },
+  "attackClips": [
+    "2H_Melee_Attack_Chop",
+    "2H_Melee_Attack_Slice",
+    "2H_Melee_Attack_Stab"
+  ],
+  "clipWalkSpeed": 1.75,
+  "clipRunSpeed": 7.0,
+  "weaponBone": "handslot.r",
+  "weaponBaseOffset": [0, 0.05, 0],
+  "weaponTipOffset": [0, 1.15, 0],
+  "parts": {
+    "sword":  { "kilic": "1H_Sword", "*": "2H_Sword" },
+    "shield": { "kule": "Rectangle_Shield", "*": "Round_Shield" },
+    "helmet": { "*": "Knight_Helmet" },
+    "cape":   { "*": "Knight_Cape" }
+  }
+}
