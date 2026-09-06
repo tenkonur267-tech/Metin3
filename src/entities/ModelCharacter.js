@@ -15,6 +15,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from '../../vendor/three/jsm/loaders/GLTFLoader.js';
+import { loadGltf } from './loadGltf.js';
 import { FBXLoader } from '../../vendor/three/jsm/loaders/FBXLoader.js';
 
 /** Oyun durumları ve klip adlarında aranacak eş anlamlılar (öncelik sırasıyla). */
@@ -368,7 +369,7 @@ export class ModelCharacter {
     let scene, clips;
 
     if (ext === 'glb' || ext === 'gltf') {
-      const gltf = await new GLTFLoader().loadAsync(url);
+      const gltf = await loadGltf(url);
       scene = gltf.scene;
       clips = gltf.animations || [];
     } else if (ext === 'fbx') {

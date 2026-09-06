@@ -22,7 +22,7 @@
  * Yaklaşım iskelet adlandırmasından ve eksen düzeninden bağımsız çalışır.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from '../../vendor/three/jsm/loaders/GLTFLoader.js';
+import { loadGltf } from './loadGltf.js';
 import { Warrior, JOINTS } from './Warrior.js';
 import { buildArmorSet, buildVisual, makeContext, buildFace, ARMOR_SLOTS, GRUP_SLOTLARI }
   from './ArmorSet.js';
@@ -589,7 +589,7 @@ export class RiggedCharacter {
   /* ---------------- Yükleme ---------------- */
 
   static async load(cfg) {
-    const gltf = await new GLTFLoader().loadAsync(cfg.file);
+    const gltf = await loadGltf(cfg.file);
     return new RiggedCharacter(gltf.scene, cfg, gltf);
   }
 }

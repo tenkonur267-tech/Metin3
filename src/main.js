@@ -193,8 +193,9 @@ class Game {
     this.karakterKipi = this.loadedModel ? 'rig' : 'yedek';
     this.hud.damga = SURUM + ' · ' + this.karakterKipi;
     if (!this.loadedModel) {
+      const neden = globalThis.__METIN3_MODEL_HATASI__;
       setTimeout(() => this.hud.toast(
-        'Karakter modeli yüklenemedi — yedek görünüm kullanılıyor'), 900);
+        'Model yüklenemedi — yedek görünüm' + (neden ? ': ' + neden.slice(0, 60) : '')), 900);
     }
     /*
      * Oyuncunun görünümü envanterden geliyor: kuşanılan her eşya kendi

@@ -42,7 +42,12 @@ export async function tryLoadCharacterModel(onStatus = () => {}) {
       }
       return { character, cfg: embedded };
     } catch (err) {
+      /*
+       * Hata metnini de dışarı taşı: bu düşüş sessiz kaldığında oyuncu
+       * yedek görünümde oynadığını bilmiyordu ve nedenini kimse göremiyordu.
+       */
       console.warn('[karakter] gömülü model yüklenemedi:', err.message);
+      globalThis.__METIN3_MODEL_HATASI__ = String(err && err.message || err);
       return null;
     }
   }

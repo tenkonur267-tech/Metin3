@@ -613,9 +613,9 @@ export class Warrior {
       zirh('chest', hips, pivot);
       this.tassets.push(pivot);
     }
-    // Etek altı kumaş
+    // Etek altı kumaş — zırhın parçası
     const skirt = new THREE.CylinderGeometry(0.19, 0.30, 0.34, 10, 1, true);
-    hips.add(part(skirt, M.clothDark, 0, -0.20, 0));
+    zirh('chest', hips, part(skirt, M.clothDark, 0, -0.20, 0));
 
     /* ---- Gövde: önce ten katmanı, sonra zırh ---- */
     spine.add(part(plate(0.33, 0.19, 0.21, 0.16), M.skin, 0, 0.07, 0));
@@ -713,9 +713,14 @@ export class Warrior {
     for (const side of [-1, 1]) {
       const S = side < 0 ? 'L' : 'R';
       const thigh = this._joint('thigh' + S, hips, side * 0.125, -0.07, 0);
-      thigh.add(part(new THREE.CylinderGeometry(0.092, 0.078, 0.45, 8), M.cloth, 0, -0.225, 0));
+      // Ten bacak altta; pantolon zırhla birlikte gidiyor
+      thigh.add(part(new THREE.CylinderGeometry(0.082, 0.070, 0.45, 8), M.skin, 0, -0.225, 0));
+      zirh('chest', thigh, part(new THREE.CylinderGeometry(0.092, 0.078, 0.45, 8),
+        M.cloth, 0, -0.225, 0));
       const shin = this._joint('shin' + S, thigh, 0, -0.45, 0);
-      shin.add(part(new THREE.CylinderGeometry(0.074, 0.060, 0.43, 8), M.cloth, 0, -0.215, 0));
+      shin.add(part(new THREE.CylinderGeometry(0.066, 0.054, 0.43, 8), M.skin, 0, -0.215, 0));
+      zirh('chest', shin, part(new THREE.CylinderGeometry(0.074, 0.060, 0.43, 8),
+        M.cloth, 0, -0.215, 0));
       // Dizlik
       zirh('boot', shin, part(dome(0.088, 0.62, 8).rotateX(-0.5), M.armor, 0, -0.015, 0.015));
       // Baldır zırhı (greave)
