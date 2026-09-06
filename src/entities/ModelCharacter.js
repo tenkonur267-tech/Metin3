@@ -125,15 +125,26 @@ export class ModelCharacter {
     this.root.add(scene);
     this.model = scene;
 
-    /* -- Ölçek ve zemin hizası: model ne boyda gelirse gelsin -- */
-    const box = new THREE.Box3().setFromObject(scene);
+    /*
+     * Ölçek ve zemin hizası.
+     *
+     * Kutu yalnızca gövdeden ölçülüyor: modüler paketlerde silah, kalkan ve
+     * pelerin de sahnede duruyor ve hepsini içeren kutu karakterden çok daha
+     * yüksek çıkıyor. Böyle ölçülünce karakter hedef boya sığdırmak için
+     * küçültülüyor ve olduğundan kısa görünüyordu.
+     */
+    this._parcaAdlari = new Set();
+    for (const esleme of Object.values(cfg.parts || {})) {
+      for (const ad of Object.values(esleme)) this._parcaAdlari.add(normalize(ad));
+    }
+    const box = this._govdeKutusu(scene);
     const size = new THREE.Vector3();
     box.getSize(size);
     const targetH = cfg.height ?? 1.95;
     const s = (cfg.scale ?? (size.y > 0.001 ? targetH / size.y : 1));
     scene.scale.setScalar(s);
     // Ayakları y=0'a indir
-    const box2 = new THREE.Box3().setFromObject(scene);
+    const box2 = this._govdeKutusu(scene);
     scene.position.y -= box2.min.y;
     if (cfg.yOffset) scene.position.y += cfg.yOffset;
     if (cfg.rotationY) scene.rotation.y = cfg.rotationY;
@@ -189,6 +200,7 @@ export class ModelCharacter {
     };
 
     this._applyNodeVisibility();
+    this._setupParts();
     this._setupWeapon();
     this.setState('idle', { force: true });
   }
@@ -211,6 +223,67 @@ export class ModelCharacter {
       else if (hide.has(n)) { o.visible = false; found.push('-' + o.name); }
     });
     if (found.length) console.info('[karakter] görünürlük:', found.join(' '));
+  }
+
+  /**
+   * Modelin taşıdığı takılabilir parçaları görünüm gruplarına bağlar.
+   *
+   * KayKit gibi modüler paketlerde miğfer, pelerin, silah ve kalkanlar ayrı
+   * mesh olarak gelir ve hepsi birden görünür. `parts` yapılandırması bunları
+   * ekipman gruplarına eşliyor: grup başına eşya görünümü -> düğüm adı, artı
+   * "*" varsayılanı. Böylece kuşanılan eşya modelde gerçekten değişiyor.
+   *
+   *   "parts": { "sword": { "kilic": "1H_Sword", "*": "2H_Sword" } }
+   */
+  /** Takılabilir parçaları dışarıda bırakan sınır kutusu. */
+  _govdeKutusu(scene) {
+    scene.updateWorldMatrix(true, true);
+    const kutu = new THREE.Box3();
+    const gecici = new THREE.Box3();
+    let bulundu = false;
+    scene.traverse((o) => {
+      if (!o.isMesh && !o.isSkinnedMesh) return;
+      if (o.name && this._parcaAdlari.has(normalize(o.name))) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      gecici.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      if (bulundu) kutu.union(gecici); else { kutu.copy(gecici); bulundu = true; }
+    });
+    return bulundu ? kutu : new THREE.Box3().setFromObject(scene);
+  }
+
+  _setupParts() {
+    this.parcaTanim = this.cfg.parts || null;
+    this.parcaDugum = new Map();
+    if (!this.parcaTanim) return;
+    this.model.traverse((o) => { if (o.name) this.parcaDugum.set(normalize(o.name), o); });
+    // Ekipman gelene kadar hepsi kapalı
+    for (const esleme of Object.values(this.parcaTanim)) {
+      for (const ad of Object.values(esleme)) {
+        const d = this.parcaDugum.get(normalize(ad));
+        if (d) d.visible = false;
+      }
+    }
+  }
+
+  /**
+   * Kuşanılan eşyalara göre modelin parçalarını gösterir/gizler.
+   * @param {Object<string, ?object>} gorsel  grup -> eşya (yoksa null)
+   */
+  applyEquipmentVisuals(gorsel = {}) {
+    if (!this.parcaTanim) return;
+    for (const [grup, esleme] of Object.entries(this.parcaTanim)) {
+      const item = gorsel[grup] || null;
+      const secilen = item ? (esleme[item.gorunum] || esleme['*']) : null;
+      for (const ad of Object.values(esleme)) {
+        const d = this.parcaDugum.get(normalize(ad));
+        if (d) d.visible = false;
+      }
+      if (secilen) {
+        const d = this.parcaDugum.get(normalize(secilen));
+        if (d) d.visible = true;
+      }
+    }
+    this.silahVar = !!gorsel.sword;
   }
 
   _makeAction(clip, state) {
