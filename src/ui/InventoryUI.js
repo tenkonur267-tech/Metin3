@@ -31,6 +31,7 @@ export class InventoryUI {
       <div class="inv-panel">
         <header>
           <h2>Envanter</h2>
+          <button class="inv-strip" type="button">Hepsini Çıkar</button>
           <button class="inv-close" type="button" aria-label="Kapat">✕</button>
         </header>
 
@@ -53,6 +54,26 @@ export class InventoryUI {
         </section>
       </div>
     `;
+    /*
+     * Tek dokunuşla soyunma. Slotları tek tek çıkarmak mobilde uzun sürüyor
+     * ve "hepsini çıkardım ama üstümde kaldı" karışıklığına yol açıyordu;
+     * bu düğme sırayla bütün slotları boşaltıyor.
+     */
+    this.el.querySelector('.inv-strip').addEventListener('click', () => {
+      let n = 0;
+      for (const slot of SLOT_ORDER) {
+        if (!this.inv.ekipman[slot]) continue;
+        if (!this.inv.cikart(slot)) {
+          const item = this.inv.cikartZorla(slot);
+          if (item) this.onYereAt?.(item);
+        }
+        n++;
+      }
+      this.secili = null;
+      this.yenile();
+      this.onMesaj?.(n ? `${n} parça çıkarıldı` : 'Üzerinde eşya yok');
+    });
+
     this.panel = this.el.querySelector('.inv-panel');
     this.slotsEl = this.el.querySelector('.inv-slots');
     this.bagEl = this.el.querySelector('.inv-bag');
