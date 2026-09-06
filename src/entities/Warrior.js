@@ -564,6 +564,17 @@ export class Warrior {
     const M = this.mats;
     const root = this.root;
 
+    /*
+     * Zırh parçaları görünüm gruplarına ayrılıyor.
+     *
+     * Bu savaşçı, dış model yüklenemediğinde devreye giren yedek. Eskiden
+     * zırhı gövdesine gömülüydü: ekipman çıkarılsa bile üstünde kalıyordu.
+     * Artık her parça bir gruba yazılıyor ve altında ten renginde bir gövde
+     * katmanı duruyor; grup gizlendiğinde altındaki gövde görünüyor.
+     */
+    this.parca = { chest: [], helmet: [], bracer: [], boot: [], cape: [] };
+    const zirh = (grup, parent, obj) => { parent.add(obj); this.parca[grup].push(obj); return obj; };
+
     /* ---- Gövde zinciri ---- */
     const hips = this._joint('hips', root, 0, 0.98, 0);
     const spine = this._joint('spine', hips, 0, 0.11, 0);
@@ -572,13 +583,15 @@ export class Warrior {
     const head = this._joint('head', neck, 0, 0.11, 0);
 
     /* ---- Kalça, kemer, zırh eteği ---- */
-    hips.add(part(plate(0.40, 0.22, 0.27), M.armor, 0, 0.01, 0));
+    // Altta ten katmanı: zırh çıkınca boşluk kalmasın
+    hips.add(part(plate(0.34, 0.21, 0.23, 0.2), M.skin, 0, 0.01, 0));
+    zirh('chest', hips, part(plate(0.40, 0.22, 0.27), M.armor, 0, 0.01, 0));
     // Geniş deri kemer + altın toka
-    hips.add(part(plate(0.44, 0.11, 0.30, 0.10), M.leather, 0, 0.12, 0));
-    hips.add(part(plate(0.14, 0.13, 0.06, 0.30), M.gold, 0, 0.12, 0.16));
+    zirh('chest', hips, part(plate(0.44, 0.11, 0.30, 0.10), M.leather, 0, 0.12, 0));
+    zirh('chest', hips, part(plate(0.14, 0.13, 0.06, 0.30), M.gold, 0, 0.12, 0.16));
     // Kalça yanları
     for (const s of [-1, 1]) {
-      hips.add(part(plate(0.09, 0.17, 0.24, 0.25), M.armorPlain, s * 0.21, 0.02, 0));
+      zirh('chest', hips, part(plate(0.09, 0.17, 0.24, 0.25), M.armorPlain, s * 0.21, 0.02, 0));
     }
 
     // Dört panelli zırh eteği: ikincil hareketle sallanır
@@ -597,26 +610,28 @@ export class Warrior {
       pivot.add(part(plate(t.w, t.h * 0.58, 0.06, 0.12), M.armor, 0, -t.h * 0.29, 0));
       pivot.add(part(plate(t.w * 0.92, t.h * 0.52, 0.055, 0.14), M.armor, 0, -t.h * 0.72, 0));
       pivot.add(part(plate(t.w * 0.96, 0.045, 0.07, 0.2), M.gold, 0, -t.h * 0.55, 0));
-      hips.add(pivot);
+      zirh('chest', hips, pivot);
       this.tassets.push(pivot);
     }
     // Etek altı kumaş
     const skirt = new THREE.CylinderGeometry(0.19, 0.30, 0.34, 10, 1, true);
     hips.add(part(skirt, M.clothDark, 0, -0.20, 0));
 
-    /* ---- Gövde zırhı ---- */
+    /* ---- Gövde: önce ten katmanı, sonra zırh ---- */
+    spine.add(part(plate(0.33, 0.19, 0.21, 0.16), M.skin, 0, 0.07, 0));
+    chest.add(part(plate(0.40, 0.43, 0.24, 0.20), M.skin, 0, 0.13, 0));
     // Karın lamelleri
-    spine.add(part(plate(0.40, 0.19, 0.26, 0.12), M.armor, 0, 0.07, 0));
+    zirh('chest', spine, part(plate(0.40, 0.19, 0.26, 0.12), M.armor, 0, 0.07, 0));
     // Göğüs kafesi: öne doğru genişleyen ağır plaka
-    chest.add(part(plate(0.50, 0.44, 0.31, 0.16), M.armor, 0, 0.13, 0));
+    zirh('chest', chest, part(plate(0.50, 0.44, 0.31, 0.16), M.armor, 0, 0.13, 0));
     // Göğüs plakası ve boyun koruması
-    chest.add(part(plate(0.30, 0.22, 0.05, 0.30), M.gold, 0, 0.19, 0.165));
-    chest.add(part(plate(0.20, 0.07, 0.04, 0.3), M.gold, 0, 0.05, 0.17));
+    zirh('chest', chest, part(plate(0.30, 0.22, 0.05, 0.30), M.gold, 0, 0.19, 0.165));
+    zirh('chest', chest, part(plate(0.20, 0.07, 0.04, 0.3), M.gold, 0, 0.05, 0.17));
     // Yaka / gerdanlık
-    chest.add(part(new THREE.TorusGeometry(0.15, 0.045, 6, 14).rotateX(Math.PI / 2),
+    zirh('chest', chest, part(new THREE.TorusGeometry(0.15, 0.045, 6, 14).rotateX(Math.PI / 2),
       M.gold, 0, 0.33, 0.01));
     // Sırt plakası
-    chest.add(part(plate(0.42, 0.38, 0.05, 0.2), M.armorPlain, 0, 0.13, -0.16));
+    zirh('chest', chest, part(plate(0.42, 0.38, 0.05, 0.2), M.armorPlain, 0, 0.13, -0.16));
 
     // Pelerin: iki parçalı, ikincil hareketle savrulur
     const capePivot = new THREE.Group();
@@ -633,7 +648,7 @@ export class Warrior {
     capeGeo2.translate(0, -0.29, 0);
     capeLower.add(part(capeGeo2, capeMat));
     capePivot.add(capeLower);
-    chest.add(capePivot);
+    zirh('cape', chest, capePivot);
     this.cape = capePivot;
     this.capeLower = capeLower;
 
@@ -650,9 +665,10 @@ export class Warrior {
     head.add(part(plate(0.15, 0.15, 0.075, 0.35), M.hair, 0, 0.015, -0.095));
     head.add(part(new THREE.SphereGeometry(0.066, 8, 6), M.hair, 0, 0.215, -0.03));
     head.add(part(new THREE.CylinderGeometry(0.022, 0.022, 0.12, 6), M.gold, 0, 0.175, -0.03));
-    // Alın bandı + altın plaka
-    head.add(part(new THREE.CylinderGeometry(0.147, 0.147, 0.05, 12), M.leatherDark, 0, 0.075, 0));
-    head.add(part(plate(0.10, 0.07, 0.03, 0.4), M.gold, 0, 0.078, 0.135));
+    // Alın bandı + altın plaka — miğfer yerine geçiyor
+    zirh('helmet', head, part(new THREE.CylinderGeometry(0.147, 0.147, 0.05, 12),
+      M.leatherDark, 0, 0.075, 0));
+    zirh('helmet', head, part(plate(0.10, 0.07, 0.03, 0.4), M.gold, 0, 0.078, 0.135));
     // Yüz
     for (const s of [-1, 1]) {
       head.add(part(new THREE.SphereGeometry(0.019, 6, 5), M.hair, s * 0.052, 0.042, 0.125));
@@ -668,27 +684,29 @@ export class Warrior {
       // Katmanlı omuzluk: iki kabuk + altın bilezik + çivi
       const pad = dome(0.175, 0.60, 12);
       pad.scale(1.10, 0.95, 1.12);
-      sh.add(part(pad, M.armor, side * 0.035, 0.015, 0));
+      zirh('chest', sh, part(pad, M.armor, side * 0.035, 0.015, 0));
       const pad2 = dome(0.16, 0.52, 12);
       pad2.scale(1.20, 0.68, 1.20);
-      sh.add(part(pad2, M.armorPlain, side * 0.05, -0.075, 0));
-      sh.add(part(new THREE.TorusGeometry(0.152, 0.024, 6, 14).rotateX(Math.PI / 2),
+      zirh('chest', sh, part(pad2, M.armorPlain, side * 0.05, -0.075, 0));
+      zirh('chest', sh, part(new THREE.TorusGeometry(0.152, 0.024, 6, 14).rotateX(Math.PI / 2),
         M.gold, side * 0.035, -0.005, 0));
-      sh.add(part(new THREE.ConeGeometry(0.045, 0.13, 6), M.gold, side * 0.14, 0.10, 0));
+      zirh('chest', sh, part(new THREE.ConeGeometry(0.045, 0.13, 6), M.gold, side * 0.14, 0.10, 0));
 
       const arm = this._joint('arm' + S, sh, side * 0.025, -0.06, 0);
       arm.add(part(new THREE.CylinderGeometry(0.068, 0.060, 0.31, 8), M.skin, 0, -0.155, 0));
-      arm.add(part(plate(0.15, 0.16, 0.15, 0.18), M.armorPlain, 0, -0.06, 0));
+      zirh('chest', arm, part(plate(0.15, 0.16, 0.15, 0.18), M.armorPlain, 0, -0.06, 0));
 
       const fore = this._joint('foreArm' + S, arm, 0, -0.31, 0);
       fore.add(part(new THREE.CylinderGeometry(0.056, 0.048, 0.28, 8), M.skin, 0, -0.14, 0));
       // Kolluk (bracer)
-      fore.add(part(new THREE.CylinderGeometry(0.074, 0.062, 0.20, 8), M.armor, 0, -0.20, 0));
-      fore.add(part(new THREE.TorusGeometry(0.066, 0.018, 5, 12).rotateX(Math.PI / 2),
+      zirh('bracer', fore, part(new THREE.CylinderGeometry(0.074, 0.062, 0.20, 8),
+        M.armor, 0, -0.20, 0));
+      zirh('bracer', fore, part(new THREE.TorusGeometry(0.066, 0.018, 5, 12).rotateX(Math.PI / 2),
         M.gold, 0, -0.29, 0));
 
       const hand = this._joint('hand' + S, fore, 0, -0.30, 0);
-      hand.add(part(plate(0.082, 0.11, 0.06, 0.25), M.leather, 0, -0.05, 0));
+      hand.add(part(plate(0.070, 0.10, 0.055, 0.25), M.skin, 0, -0.05, 0));
+      zirh('bracer', hand, part(plate(0.082, 0.11, 0.06, 0.25), M.leather, 0, -0.05, 0));
     }
 
     /* ---- Bacaklar ---- */
@@ -699,14 +717,17 @@ export class Warrior {
       const shin = this._joint('shin' + S, thigh, 0, -0.45, 0);
       shin.add(part(new THREE.CylinderGeometry(0.074, 0.060, 0.43, 8), M.cloth, 0, -0.215, 0));
       // Dizlik
-      shin.add(part(dome(0.088, 0.62, 8).rotateX(-0.5), M.armor, 0, -0.015, 0.015));
+      zirh('boot', shin, part(dome(0.088, 0.62, 8).rotateX(-0.5), M.armor, 0, -0.015, 0.015));
       // Baldır zırhı (greave)
-      shin.add(part(plate(0.15, 0.24, 0.14, 0.2), M.armorPlain, 0, -0.20, 0.005));
+      zirh('boot', shin, part(plate(0.15, 0.24, 0.14, 0.2), M.armorPlain, 0, -0.20, 0.005));
       // Çizme
-      shin.add(part(new THREE.CylinderGeometry(0.088, 0.082, 0.18, 8), M.leather, 0, -0.34, 0));
+      zirh('boot', shin, part(new THREE.CylinderGeometry(0.088, 0.082, 0.18, 8),
+        M.leather, 0, -0.34, 0));
       const foot = this._joint('foot' + S, shin, 0, -0.43, 0);
-      foot.add(part(plate(0.12, 0.085, 0.27, 0.15), M.leather, 0, 0.04, 0.06));
-      foot.add(part(plate(0.125, 0.035, 0.28, 0.1), M.leatherDark, 0, 0.0, 0.06));
+      // Çıplak ayak: çizme çıkınca görünür
+      foot.add(part(plate(0.10, 0.07, 0.23, 0.2), M.skin, 0, 0.035, 0.05));
+      zirh('boot', foot, part(plate(0.12, 0.085, 0.27, 0.15), M.leather, 0, 0.04, 0.06));
+      zirh('boot', foot, part(plate(0.125, 0.035, 0.28, 0.1), M.leatherDark, 0, 0.0, 0.06));
     }
 
     /* ---- Silahlar ---- */
@@ -728,6 +749,7 @@ export class Warrior {
       sheath.position.set(-0.15, 0.22, -0.20);
       sheath.rotation.set(0.35, 0, -0.55);
       chest.add(sheath);
+      this.sheath = sheath;
     }
 
     root.scale.setScalar(this.scale);
@@ -985,8 +1007,12 @@ export class Warrior {
    */
   applyEquipmentVisuals(gorsel = {}) {
     if (this.weapon) this.weapon.visible = !!gorsel.sword;
+    if (this.sheath) this.sheath.visible = !!gorsel.sword;
     if (this.shield) this.shield.visible = !!gorsel.shield;
-    if (this.cape) this.cape.visible = !!gorsel.cape;
+    for (const [grup, parcalar] of Object.entries(this.parca || {})) {
+      const acik = !!gorsel[grup];
+      for (const o of parcalar) o.visible = acik;
+    }
     this.silahVar = !!gorsel.sword;
   }
 
