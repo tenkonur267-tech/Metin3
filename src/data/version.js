@@ -11,4 +11,4 @@
  *   rig   — gerçek model yüklendi, ekipman görünümleri çalışıyor
  *   yedek — model yüklenemedi, prosedürel savaşçıya düşüldü
  */
-export const SURUM = 's13';
+export const SURUM = 's14';

@@ -158,14 +158,22 @@ export const POSES = {
     p.foreArmL[0] = -0.42;
 
     if (ctx.twoHanded) {
-      // Kılıç sağ omuza yaslı
-      p.armR[0] = -2.28;
-      p.armR[1] = -0.28;
-      p.armR[2] = -0.55;
-      p.foreArmR[0] = -1.25;
-      p.foreArmR[1] = -0.35;
-      p.armL[0] = -0.30 + b * 0.03;
-      p.foreArmL[0] = -0.55;
+      /*
+       * Kılıç iki elle önde, aşağı sarkık tutuluyor.
+       *
+       * Eskiden kol -2.28 rad ile neredeyse tam yukarı kalkıyordu; bu açı,
+       * çizilmiş orijinal Warrior mesh'inin kol oranlarına göre "omuzda
+       * dinlenen kılıç" verirken, retarget edilen insan taban gövdede kol
+       * dümdüz havaya kalkmış gibi görünüyordu (kol/önkol uzunluk oranı
+       * farklı). Daha ölçülü bir açıyla iki gövdede de doğal duruyor.
+       */
+      p.armR[0] = -0.26 + b * 0.02;
+      p.armR[1] = -0.10;
+      p.armR[2] = -0.16;
+      p.foreArmR[0] = -0.32;
+      p.foreArmR[1] = -0.10;
+      p.armL[0] = -0.22 + b * 0.02;
+      p.foreArmL[0] = -0.32;
     } else {
       p.armR[0] = -0.16;
       p.foreArmR[0] = -0.52;
@@ -224,13 +232,14 @@ export const POSES = {
     p.foreArmL[0] = -0.42 - Math.max(0, -sw) * 0.26;
 
     if (ctx.twoHanded) {
-      p.armR[0] = -2.30;
-      p.armR[1] = -0.30;
-      p.armR[2] = -0.55;
-      p.foreArmR[0] = -1.20;
-      p.foreArmR[1] = -0.35;
-      p.armL[0] = -0.34 - sw * 0.16;
-      p.foreArmL[0] = -0.58;
+      // Kılıç iki elle önde, hafif sallanarak (bkz. idle'daki açıklama)
+      p.armR[0] = -0.30 - sw * 0.18;
+      p.armR[1] = -0.14;
+      p.armR[2] = -0.20;
+      p.foreArmR[0] = -0.36;
+      p.foreArmR[1] = -0.14;
+      p.armL[0] = -0.26 - sw * 0.18;
+      p.foreArmL[0] = -0.36;
     } else {
       p.armR[0] = sw * 0.48; p.armR[2] = -0.24;
       p.foreArmR[0] = -0.50 - Math.max(0, sw) * 0.26;
@@ -262,14 +271,14 @@ export const POSES = {
     p.foreArmL[0] = -1.05;
 
     if (ctx.twoHanded) {
-      // Ağır kılıç koşarken omza yatık taşınır
-      p.armR[0] = -2.35 - sw * 0.10;
-      p.armR[1] = -0.35;
-      p.armR[2] = -0.62;
-      p.foreArmR[0] = -1.15;
-      p.foreArmR[1] = -0.40;
-      p.armL[0] = -0.50 - sw * 0.34;
-      p.foreArmL[0] = -0.90;
+      // Kılıç iki elle önde tutulur (bkz. idle'daki açıklama)
+      p.armR[0] = -0.36 - sw * 0.26;
+      p.armR[1] = -0.18;
+      p.armR[2] = -0.26;
+      p.foreArmR[0] = -0.42;
+      p.foreArmR[1] = -0.18;
+      p.armL[0] = -0.32 - sw * 0.26;
+      p.foreArmL[0] = -0.42;
     } else {
       p.armR[0] = sw * 1.00; p.armR[2] = -0.30;
       p.foreArmR[0] = -1.15;

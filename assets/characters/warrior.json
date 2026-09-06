@@ -1,10 +1,10 @@
 {
   "_aciklama": [
     "İnsan taban gövde: base_male.glb — BoQsc / Orange Juice Games, CC0.",
-    "Yürüyüş/koşu/bekleme animasyonu modelde yok; mocap-xbot.glb'deki Mixamo",
-    "klipleri görünmez bir sürücüden aktarılıyor (ClipDriver + HybridDriver).",
-    "Saldırı, darbe, ölüm gibi durumlar prosedürel savaşçıdan geliyor.",
-    "KayKit şövalyesine dönmek için: warrior-knight.json.bak"
+    "Zırh oyunun kendi kodundan prosedürel üretilip kemiklere takılıyor.",
+    "Hareket prosedürel sürücü (Warrior) + iki kemikli bacak IK'sıyla üretiliyor.",
+    "Mocap denemesi (HybridDriver/ClipDriver) geri alındı: kaynak klipler çok",
+    "düşük genlikliydi ve retarget sonucu bacaklar donuk duruyordu."
   ],
   "enabled": true,
   "kind": "rigged",
@@ -14,6 +14,5 @@
   "armorFromKingdom": true,
   "skin": {
     "color": 14198412
-  },
-  "animationFile": "mocap-xbot.glb"
+  }
 }
