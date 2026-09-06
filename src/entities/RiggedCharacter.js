@@ -24,6 +24,8 @@
 import * as THREE from 'three';
 import { loadGltf } from './loadGltf.js';
 import { Warrior, JOINTS } from './Warrior.js';
+import { ClipDriver } from './ClipDriver.js';
+import { HybridDriver } from './HybridDriver.js';
 import { buildArmorSet, buildVisual, makeContext, buildFace, ARMOR_SLOTS, GRUP_SLOTLARI }
   from './ArmorSet.js';
 
@@ -52,12 +54,12 @@ const _qa = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
 const _qc = new THREE.Quaternion();
 
-/** Prosedürel savaşçının dinlenme kalça yüksekliği. */
-const LEG_REST_HIP_Y = 0.98;
+const _v3 = new THREE.Vector3();
 
 export class RiggedCharacter {
-  constructor(scene, cfg, gltf) {
+  constructor(scene, cfg, gltf, animGltf = null) {
     this.cfg = cfg;
+    this.animGltf = animGltf;
     this.root = new THREE.Group();
     this.root.name = 'rigged-character';
     this.root.add(scene);
@@ -76,6 +78,7 @@ export class RiggedCharacter {
     this._bindDriver();
     this._measure();
     this._addFace();
+    this._kalibreMocap();
 
     /* -- Durum: sürücüden yansıtılır -- */
     this.state = this.driver.state;
@@ -183,21 +186,37 @@ export class RiggedCharacter {
    * ulaştığı yönelimleri hedef kemiklere taşıyoruz.
    */
   _bindDriver() {
-    this.driver = new Warrior(
+    /*
+     * Sürücü sahneye eklenmiyor; yalnızca eklem hiyerarşisi için var.
+     *
+     * Hedef kemiğin animasyondaki yönelimi `sürücüFarkı · hedefDinlenme`
+     * olarak kuruluyor. Fark, sürücünün kendi dinlenme duruşuna göre
+     * ölçüldüğü için sürücü ile hedefin kemik adları, eksen düzeni ve
+     * duruşu birbirini tutmak zorunda değil: prosedürel savaşçı da,
+     * hareket yakalama klipleri taşıyan bir Mixamo iskeleti de aynı
+     * hedefi sürebiliyor.
+     */
+    const proc = new Warrior(
       this.cfg.armor || { base: '#7a2230', trim: '#d9b45a', cloth: 0x8e1f2a },
       { weapon: this.cfg.twoHanded === false ? 'sword' : 'twohand' });
-    this.driver.root.updateMatrixWorld(true);
-    this.model.updateMatrixWorld(true);
+    proc.captureRest();
 
+    if (this.animGltf) {
+      const klip = new ClipDriver(this.animGltf, this.cfg.mocap || {});
+      this.driver = new HybridDriver(klip, proc);
+      this.mocap = klip;
+    } else {
+      this.driver = proc;
+    }
+
+    this.model.updateMatrixWorld(true);
     const modelInv = this.model.getWorldQuaternion(new THREE.Quaternion()).invert();
     const modelPos = this.model.getWorldPosition(new THREE.Vector3());
-    this.offset = {};
     this.restQ = {};    // kemiğin dinlenme yönelimi (model köküne göre)
     this.restP = {};    // kemiğin dinlenme konumu (model köküne göre)
     this.restPC = {};   // aynı konum, karakter uzayında (X sağ, Y yukarı, Z ileri)
     const frameInv = (this.frameQ || new THREE.Quaternion()).clone().invert();
     for (const joint of this.mappedJoints) {
-      const dq = this.driver.j[joint].getWorldQuaternion(new THREE.Quaternion());
       const tq = this.j[joint].getWorldQuaternion(new THREE.Quaternion());
       tq.premultiply(modelInv);                       // modelin kökine göre
       this.restQ[joint] = tq.clone();
@@ -210,11 +229,8 @@ export class RiggedCharacter {
        * ancak bu uzayda doğru yanıtlanıyor. Model uzayında ileri ekseni +X
        * olabiliyor ve z'ye bakmak yanlış yöne kaydırıyor.
        */
-      this.restPC[joint] = this.restP[joint].clone()
-        .applyQuaternion(frameInv);
-      this.offset[joint] = dq.invert().multiply(tq);  // sürücü⁻¹ · hedef
+      this.restPC[joint] = this.restP[joint].clone().applyQuaternion(frameInv);
     }
-    this.restHipY = LEG_REST_HIP_Y;
   }
 
   /** Taban gövde dokusuz gelir; ten materyali burada verilir. */
@@ -248,6 +264,13 @@ export class RiggedCharacter {
     this.modelScale = s;
     this.restHipY *= s;
   }
+
+  /**
+   * Zırh parçalarının ölçüleceği kemik boyutları.
+   *
+   * Zırh dünya metresiyle değil kemik uzunluklarıyla ölçekleniyor; böylece
+   * farklı boy ve orandaki riglere aynı set oturuyor.
+   */
 
   /**
    * Zırh parçalarının ölçüleceği kemik boyutları.
@@ -521,7 +544,6 @@ export class RiggedCharacter {
     this.state = this.driver.state;
     this.stateTime = this.driver.stateTime;
 
-    this.driver.root.updateMatrixWorld(true);
     this.model.updateMatrixWorld(true);
     const modelInv = this.model.getWorldQuaternion(_qa).invert();
 
@@ -533,20 +555,13 @@ export class RiggedCharacter {
      * bu karede yeni atanan dönüşü henüz matrise yansımadığı için çocuklar
      * bir kare eski yönelime göre hesaplanıyor ve zincir boyunca sapıyor.
      */
-    for (const joint of this.mappedJoints) {
-      const bone = this.j[joint];
-      const want = this.driver.j[joint].getWorldQuaternion(_qb).multiply(this.offset[joint]);
-      bone.parent.updateWorldMatrix(true, false);
-      const parentWorld = bone.parent.getWorldQuaternion(_qc);
-      parentWorld.premultiply(modelInv).invert();
-      bone.quaternion.copy(parentWorld.multiply(want));
-    }
+    this._kemikleriUygula(modelInv);
 
-    // Kök ötelemesi: sürücünün kalça yüksekliğini modele ölçekleyerek aktar
+    // Kök ötelemesi: sürücünün kalça kaymasını modele ölçekleyerek aktar
     const s = this.modelScale;
-    const hipDelta = (this.driver.j.hips.position.y - LEG_REST_HIP_Y) * s;
-    this.model.position.y = (this._baseY ??= this.model.position.y) + hipDelta;
-    this.model.position.z = this.driver.j.hips.position.z * s;
+    const kalca = this.driver.hipsOffset(_v3);
+    this.model.position.y = (this._baseY ??= this.model.position.y) + kalca.y * s;
+    this.model.position.z = kalca.z * s;
     this.model.rotation.y = (this.rotationY || 0) + (this.driver._curRootYaw || 0);
 
     return ev;
@@ -576,6 +591,106 @@ export class RiggedCharacter {
     return false;
   }
 
+  /**
+   * Sürücünün ulaştığı yönelimi hedef kemiklere taşır.
+   * @param {THREE.Quaternion} modelInv  modelin dünya yöneliminin tersi
+   */
+  _kemikleriUygula(modelInv) {
+    for (const joint of this.mappedJoints) {
+      const bone = this.j[joint];
+      const want = this.driver.jointDelta(joint, _qb).multiply(this.restQ[joint]);
+      bone.parent.updateWorldMatrix(true, false);
+      const parentWorld = bone.parent.getWorldQuaternion(_qc);
+      parentWorld.premultiply(modelInv).invert();
+      bone.quaternion.copy(parentWorld.multiply(want));
+    }
+  }
+
+  /**
+   * Mocap kliplerinin yer hızını **hedef gövdede** ölçer.
+   *
+   * Aktarım açıları taşıyor, konumları değil: sürücünün bacağı ile hedefin
+   * bacağı farklı uzunluktaysa aynı açılar farklı adım boyu üretir. Bu yüzden
+   * hız, klibin ait olduğu iskelette değil, klip hedefe uygulandıktan sonra
+   * hedefin ayak süpürmesinden ölçülüyor. Yoksa oynatma hızı yanlış çıkıyor
+   * ve ayaklar zeminde kayıyor.
+   */
+  _kalibreMocap() {
+    const klip = this.mocap;
+    if (!klip || !this.j.footL || !this.j.footR) return;
+    const eskiDurum = this.driver.state;
+    const rapor = [];
+
+    for (const [durum, action] of Object.entries(klip.actions)) {
+      if (durum === 'idle') continue;
+      const c = action.getClip();
+      if (c.duration <= 0) continue;
+      const N = 40;
+
+      const eski = {};
+      for (const [k, a] of Object.entries(klip.actions)) { eski[k] = a.getEffectiveWeight(); a.stop(); }
+      action.reset().play();
+      action.paused = true;
+      klip.aktifKalibre = true;
+      const oncekiAktif = this.driver.aktif;
+      if (this.driver.aktif !== undefined) this.driver.aktif = klip;
+
+      const orn = [];
+      const modelInv = this.model.getWorldQuaternion(_qa).invert();
+      for (let i = 0; i <= N; i++) {
+        action.time = (i / N) * c.duration;
+        klip.mixer.update(0);
+        klip.root.updateMatrixWorld(true);
+        this._kemikleriUygula(modelInv);
+        this.model.updateMatrixWorld(true);
+        const kayit = {};
+        for (const sd of ['L', 'R']) {
+          const b = this.j['foot' + sd];
+          b.updateWorldMatrix(true, false);
+          const v = new THREE.Vector3().setFromMatrixPosition(b.matrixWorld);
+          kayit[sd] = v;
+        }
+        orn.push(kayit);
+      }
+
+      action.paused = false;
+      action.stop();
+      klip.aktifKalibre = false;
+      if (this.driver.aktif !== undefined) this.driver.aktif = oncekiAktif;
+      for (const [k, a] of Object.entries(klip.actions)) {
+        if (eski[k] > 0) { a.play(); a.setEffectiveWeight(eski[k]); }
+      }
+
+      // İlerleme ekseni ve basılı eşiği
+      const yay = (ek) => {
+        let mn = Infinity, mx = -Infinity;
+        for (const o of orn) for (const sd of ['L', 'R']) {
+          mn = Math.min(mn, o[sd][ek]); mx = Math.max(mx, o[sd][ek]);
+        }
+        return mx - mn;
+      };
+      const eksen = yay('z') >= yay('x') ? 'z' : 'x';
+      let taban = Infinity;
+      for (const o of orn) taban = Math.min(taban, o.L.y, o.R.y);
+      const esik = taban + 0.05;
+
+      let yol = 0;
+      for (let i = 1; i < orn.length; i++) {
+        for (const sd of ['L', 'R']) {
+          const a = orn[i - 1][sd], b = orn[i][sd];
+          if (a.y > esik || b.y > esik) continue;
+          yol += Math.abs(b[eksen] - a[eksen]);
+        }
+      }
+      if (yol > 1e-3) {
+        klip.klipHizi[durum] = yol / c.duration;
+        rapor.push(`${durum}=${klip.klipHizi[durum].toFixed(2)} m/s`);
+      }
+    }
+    if (rapor.length) console.info('[mocap] hedefte ölçülen yer hızı:', rapor.join(' '));
+    this.driver.setState(eskiDurum, { force: true });
+  }
+
   getWeaponTipWorld(out = new THREE.Vector3()) {
     return this.weaponTip ? this.weaponTip.getWorldPosition(out) : out.copy(this.root.position);
   }
@@ -590,6 +705,14 @@ export class RiggedCharacter {
 
   static async load(cfg) {
     const gltf = await loadGltf(cfg.file);
-    return new RiggedCharacter(gltf.scene, cfg, gltf);
+    let anim = null;
+    if (cfg.animationFile) {
+      try {
+        anim = await loadGltf(cfg.animationFile);
+      } catch (err) {
+        console.warn('[mocap] animasyon kaynağı yüklenemedi:', err.message);
+      }
+    }
+    return new RiggedCharacter(gltf.scene, cfg, gltf, anim);
   }
 }

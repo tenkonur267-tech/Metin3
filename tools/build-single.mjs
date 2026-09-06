@@ -42,8 +42,15 @@ try {
     const bytes = await fs.readFile(modelPath);
     const mime = cfg.file.endsWith('.glb') ? 'model/gltf-binary' : 'application/octet-stream';
     const embedded = { ...cfg, file: `data:${mime};base64,${bytes.toString('base64')}` };
-    preamble += `globalThis.__METIN3_CHARACTER__=${JSON.stringify(embedded)};\n`;
     console.log(`  gömülü karakter: ${cfg.file} (${(bytes.length / 1048576).toFixed(2)} MB)`);
+    // Animasyon kaynağı ayrı bir dosyaysa o da gömülür (mocap sürücüsü)
+    if (cfg.animationFile) {
+      const animBytes = await fs.readFile(r('assets/characters', cfg.animationFile));
+      embedded.animationFile = `data:model/gltf-binary;base64,${animBytes.toString('base64')}`;
+      console.log(`  gömülü animasyon: ${cfg.animationFile} `
+        + `(${(animBytes.length / 1048576).toFixed(2)} MB)`);
+    }
+    preamble += `globalThis.__METIN3_CHARACTER__=${JSON.stringify(embedded)};\n`;
   }
 } catch (err) {
   console.log('  gömülü karakter yok:', err.message);

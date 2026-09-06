@@ -15,6 +15,8 @@ import * as THREE from 'three';
 import { getTexture } from '../core/Textures.js';
 
 /* Animasyonun doğrudan sürdüğü eklemler. */
+const _restQ = new THREE.Quaternion();
+
 export const JOINTS = [
   'hips', 'spine', 'chest', 'neck', 'head',
   'shoulderL', 'armL', 'foreArmL', 'handL',
@@ -550,6 +552,40 @@ export class Warrior {
     this._ctx = { twoHanded: this.twoHanded };
     this.vy = 0;
     this._prevYaw = 0;
+  }
+
+  /**
+   * Dinlenme duruşunu saklar. Aktarım, sürücünün dünya yönelimini değil,
+   * dinlenmesine göre **farkını** taşıyor; böylece farklı riglerden gelen
+   * sürücüler aynı hedefi sürebiliyor.
+   */
+  captureRest() {
+    this.root.updateMatrixWorld(true);
+    this._restW = {};
+    for (const j of JOINTS) {
+      if (this.j[j]) this._restW[j] = this.j[j].getWorldQuaternion(new THREE.Quaternion());
+    }
+    this._restHipsY = this.j.hips.position.y;
+    this._restHipsZ = this.j.hips.position.z;
+    return this;
+  }
+
+  /** Kemiğin dinlenme duruşuna göre dünya farkı. */
+  jointDelta(joint, out = new THREE.Quaternion()) {
+    const b = this.j[joint];
+    if (!b) return out.identity();
+    b.getWorldQuaternion(out);
+    const r = this._restW && this._restW[joint];
+    if (r) out.multiply(_restQ.copy(r).invert());
+    return out;
+  }
+
+  /** Kalçanın dinlenme konumuna göre kayması. */
+  hipsOffset(out = new THREE.Vector3()) {
+    const h = this.j.hips;
+    if (!h) return out.set(0, 0, 0);
+    return out.set(0, h.position.y - (this._restHipsY ?? 0.98),
+      h.position.z - (this._restHipsZ ?? 0));
   }
 
   _joint(name, parent, x, y, z) {
