@@ -64,7 +64,7 @@ Ayrıntılı mobil durumu ve yol haritası: **[MOBILE.md](MOBILE.md)**
 
 ### Android'de
 
-`MOBILE.md` → [Android build alma](MOBILE.md#3-android-build-alma).
+`MOBILE.md` → [Android build alma](MOBILE.md#4-android-build-alma).
 Özet:
 
 ```bash

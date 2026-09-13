@@ -78,7 +78,41 @@ başarısız olur.
 
 ---
 
-## 3. Android build alma
+## 3. Doğrulanan durum
+
+Aşağıdakiler bu depoda, Godot 4.6.3-stable ile **çalıştırılarak** doğrulandı:
+
+| Test | Sonuç |
+|---|---|
+| Proje import | 717 varlık, hata yok |
+| Sunucu yığını (`master` + `gateway` + `world`) | Ayağa kalktı; gateway ve world master'a bağlandı, SQLite ve haritalar yüklendi |
+| Client açılışı (`--mode=client`) | Sıfır hata |
+| `Device` autoload + `hud.gd` derlemesi | 8/8 smoke test geçti |
+| Android APK export | 44.4 MB, imzalandı ve doğrulandı |
+
+Üretilen APK manifest'i:
+
+```
+package                com.metin3.game
+versionName            0.28.0
+application-label      Metin3
+screenOrientation      0xb  (SENSOR_LANDSCAPE)
+uses-permission        INTERNET, ACCESS_NETWORK_STATE
+native-code            arm64-v8a
+minSdkVersion          24   (Android 7.0)
+targetSdkVersion       36   (Android 16)
+```
+
+`targetSdkVersion 36` önemli: Android 16'da edge-to-edge çizim **tamamen
+zorunlu**, devre dışı bırakılamıyor. Yani yukarıdaki güvenli alan işi
+opsiyonel bir iyileştirme değil, uygulamanın düzgün görünmesinin şartı.
+
+> Not: export sırasında konsolda görünen `RID allocations ... were leaked at
+> exit` satırları Godot'un headless kapanışına ait, APK ile ilgisi yok.
+
+---
+
+## 4. Android build alma
 
 ### Gereksinimler
 
@@ -126,7 +160,7 @@ atlanır, build kırılmaz.
 
 ---
 
-## 4. Sırada ne var
+## 5. Sırada ne var
 
 Öncelik sırasıyla:
 
@@ -152,7 +186,7 @@ atlanır, build kırılmaz.
 
 ---
 
-## 5. Hukuki not
+## 6. Hukuki not
 
 **Metin2 telifi Webzen'e aittir.** Bu depodaki hiçbir şey Metin2'den alınmadı
 ve alınmamalı: ne model, ne doku, ne ses, ne harita, ne de metin. Oyun

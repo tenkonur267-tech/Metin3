@@ -35,3 +35,5 @@ addons/godot-sqlite/bin/*
 /data/config/discord_webhook.cfg
 source/server/master/account_collection.tres
 /addons/godot_mcp
+# Build outputs (the release workflow produces these; they are not source).
+/exports/
