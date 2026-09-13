@@ -18,8 +18,14 @@ internal class CommandManager : ICommandManager, ILoadable
 {
     private readonly ILogger<CommandManager> _logger;
     private readonly ICacheManager _cacheManager;
-    private readonly SortedDictionary<string, CommandDescriptor> _commandHandlers = new();
+    private readonly SortedDictionary<string, CommandDescriptor> _commandHandlers =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<CommandInfo>? _commands;
     public Dictionary<Guid, PermissionGroup> Groups { get; } = new();
+
+    public IReadOnlyList<CommandInfo> Commands =>
+        _commands ??= [.. _commandHandlers.Values.Select(x => x.ToCommandInfo())];
 
     private readonly IServiceProvider _serviceProvider;
     private readonly IOptions<GameCommandOptions> _options;
@@ -97,6 +103,7 @@ internal class CommandManager : ICommandManager, ILoadable
             }
 
             _commandHandlers.Add(cmd, new CommandDescriptor(type, cmd, desc, optionsType, bypass));
+            _commands = null;
         }
     }
 
@@ -148,7 +155,12 @@ internal class CommandManager : ICommandManager, ILoadable
 
     public bool CanUseCommand(IPlayerEntity player, string cmd)
     {
-        if (_commandHandlers[cmd].BypassPerm)
+        if (!_commandHandlers.TryGetValue(cmd, out var descriptor))
+        {
+            return false;
+        }
+
+        if (descriptor.BypassPerm)
         {
             return true;
         }
@@ -180,149 +192,136 @@ internal class CommandManager : ICommandManager, ILoadable
         var command = args[0];
         var argsWithoutCommand = args.Skip(1).ToArray();
 
-        if (command.Equals("help", StringComparison.InvariantCultureIgnoreCase))
+        if (_commandHandlers.TryGetValue(command, out var commandCache))
         {
-            // special case for help
-
-            connection.Player.SendChatMessage("The following commands are available:");
-            foreach (var handler in _commandHandlers)
+            if (!CanUseCommand(connection.Player, command))
             {
-                connection.Player.SendChatInfo($"- /{handler.Key}");
+                connection.Player.SendChatInfo("You don't have enough permission to use this command");
+                return;
             }
-        }
-        else
-        {
-            if (_commandHandlers.TryGetValue(command, out var commandCache))
+
+            if (commandCache.OptionsType is not null)
             {
-                if (!CanUseCommand(connection.Player, command))
+                var parserMethod = typeof(Parser)
+                    .GetMethods()
+                    .Single(x => x.Name == nameof(Parser.ParseArguments) && x.GetParameters().Length == 1)
+                    .MakeGenericMethod(commandCache.OptionsType);
+
+                // basically makes a ICommandHandler<TCommandOptions> for the given command
+                // creates a context with the given CommandContext<TCommandContext>
+                // invokes the command
+                // this may be improved in the future (caching)
+
+                var parserResult = parserMethod.Invoke(ParserInstance, [argsWithoutCommand])!;
+
+                if (parserResult.GetType().IsGenericType &&
+                    parserResult.GetType().GetGenericTypeDefinition() == typeof(NotParsed<>))
                 {
-                    connection.Player.SendChatInfo("You don't have enough permission to use this command");
-                    return;
-                }
+                    var resultType = typeof(ParserResult<>).MakeGenericType(commandCache.OptionsType);
+                    var errors =
+                        (IEnumerable<Error>)resultType.GetProperty(nameof(ParserResult<>.Errors))!.GetValue(
+                            parserResult)!;
 
-                if (commandCache.OptionsType is not null)
-                {
-                    var parserMethod = typeof(Parser)
-                        .GetMethods()
-                        .Single(x => x.Name == nameof(Parser.ParseArguments) && x.GetParameters().Length == 1)
-                        .MakeGenericMethod(commandCache.OptionsType);
-
-                    // basically makes a ICommandHandler<TCommandOptions> for the given command
-                    // creates a context with the given CommandContext<TCommandContext>
-                    // invokes the command
-                    // this may be improved in the future (caching)
-
-                    var parserResult = parserMethod.Invoke(ParserInstance, [argsWithoutCommand])!;
-
-                    if (parserResult.GetType().IsGenericType &&
-                        parserResult.GetType().GetGenericTypeDefinition() == typeof(NotParsed<>))
+                    if (_options.Value.StrictMode)
                     {
-                        var resultType = typeof(ParserResult<>).MakeGenericType(commandCache.OptionsType);
-                        var errors =
-                            (IEnumerable<Error>)resultType.GetProperty(nameof(ParserResult<>.Errors))!.GetValue(
-                                parserResult)!;
-
-                        if (_options.Value.StrictMode)
+                        throw new CommandValidationException(command)
                         {
-                            throw new CommandValidationException(command)
-                            {
-                                Errors = [.. errors.Select(e => e.GetType().Name)]
-                            };
-                        }
-                        else
+                            Errors = [.. errors.Select(e => e.GetType().Name)]
+                        };
+                    }
+                    else
+                    {
+                        Func<HelpText, HelpText> helpTextFunc = h =>
                         {
-                            Func<HelpText, HelpText> helpTextFunc = h =>
-                            {
-                                h.Copyright = "";
-                                h.AutoVersion = false;
-                                h.AutoHelp = false;
-                                h.Heading = "";
-                                return h;
-                            };
-                            Func<Example, Example> exampleFunc = example => example;
-                            var verbsIndex = false;
-                            var maxDisplayWidth = 80;
-                            var helpTextMethod = typeof(HelpText)
-                                .GetMethods(BindingFlags.Static | BindingFlags.Public)
-                                .First(x => x.Name == nameof(HelpText.AutoBuild) && x.GetParameters().Length == 5)
-                                .MakeGenericMethod(commandCache.OptionsType);
-                            var help = (HelpText)helpTextMethod.Invoke(null,
-                                [parserResult, helpTextFunc, exampleFunc, verbsIndex, maxDisplayWidth])!;
-                            var messages = help.ToString().Split(Environment.NewLine)
-                                .Where(x => !string.IsNullOrWhiteSpace(x));
-                            connection.Player.SendChatInfo("Command validation failed:");
-                            foreach (var message in messages)
-                            {
-                                connection.Player.SendChatInfo(message);
-                            }
-
-                            return;
+                            h.Copyright = "";
+                            h.AutoVersion = false;
+                            h.AutoHelp = false;
+                            h.Heading = "";
+                            return h;
+                        };
+                        Func<Example, Example> exampleFunc = example => example;
+                        var verbsIndex = false;
+                        var maxDisplayWidth = 80;
+                        var helpTextMethod = typeof(HelpText)
+                            .GetMethods(BindingFlags.Static | BindingFlags.Public)
+                            .First(x => x.Name == nameof(HelpText.AutoBuild) && x.GetParameters().Length == 5)
+                            .MakeGenericMethod(commandCache.OptionsType);
+                        var help = (HelpText)helpTextMethod.Invoke(null,
+                            [parserResult, helpTextFunc, exampleFunc, verbsIndex, maxDisplayWidth])!;
+                        var messages = help.ToString().Split(Environment.NewLine)
+                            .Where(x => !string.IsNullOrWhiteSpace(x));
+                        connection.Player.SendChatInfo("Command validation failed:");
+                        foreach (var message in messages)
+                        {
+                            connection.Player.SendChatInfo(message);
                         }
-                    }
 
-                    var methodInfo = typeof(ParserResultExtensions).GetMethods().Single(x =>
-                    {
-                        var nameMatches = x.Name == nameof(ParserResultExtensions.MapResult);
-                        if (!nameMatches) return false; // return early
-                        var parameters = x.GetParameters();
-                        if (parameters.Length != 3) return false; // return early
-                        var param1 = parameters[0].ParameterType;
-                        var param2 = parameters[1].ParameterType;
-                        var param3 = parameters[2].ParameterType;
-                        return param1.IsGenericType &&
-                               param1.GetGenericTypeDefinition() == typeof(ParserResult<>) &&
-                               param1.GenericTypeArguments[0].IsGenericParameter &&
-                               param2.IsGenericType &&
-                               param2.GetGenericTypeDefinition() == typeof(Func<,>) &&
-                               param3.IsGenericType &&
-                               param3.GetGenericTypeDefinition() == typeof(Func<,>) &&
-                               param3.GenericTypeArguments[0] == typeof(IEnumerable<Error>);
-                    });
-                    var genericMethod =
-                        methodInfo.MakeGenericMethod(commandCache.OptionsType, commandCache.OptionsType);
-                    var successParam = Expression.Parameter(commandCache.OptionsType, "x");
-                    var successExpression = Expression.Lambda(successParam, successParam);
-                    var errorParam = Expression.Parameter(typeof(IEnumerable<Error>), "x");
-                    var errorConstant = Expression.Constant(Activator.CreateInstance(commandCache.OptionsType));
-                    var errorExpression = Expression.Lambda(errorConstant, errorParam);
-                    var options =
-                        genericMethod.Invoke(null,
-                            [parserResult, successExpression.Compile(), errorExpression.Compile()])!;
-
-                    var ctx = Activator.CreateInstance(
-                        typeof(CommandContext<>).MakeGenericType(commandCache.OptionsType),
-                        new[] { connection.Player, options })!;
-                    var cmdExecuteMethodInfo = typeof(ICommandHandler<>).MakeGenericType(commandCache.OptionsType)
-                        .GetMethod(nameof(ICommandHandler<>.ExecuteAsync))!;
-                    await using var scope = _serviceProvider.CreateAsyncScope();
-                    var cmd = ActivatorUtilities.CreateInstance(scope.ServiceProvider, commandCache.Type);
-
-                    try
-                    {
-                        await (Task)cmdExecuteMethodInfo.Invoke(cmd, [ctx])!;
-                    }
-                    catch (Exception e)
-                    {
-                        _logger.LogError(e, "Failed to execute command {Type}!", commandCache.Type.Name);
-                        connection.Player.SendChatInfo($"Failed to execute command {command}");
+                        return;
                     }
                 }
-                else
+
+                var methodInfo = typeof(ParserResultExtensions).GetMethods().Single(x =>
                 {
-                    await using var scope = _serviceProvider.CreateAsyncScope();
-                    var cmd = (ICommandHandler)ActivatorUtilities.CreateInstance(scope.ServiceProvider,
-                        commandCache.Type);
-                    await cmd.ExecuteAsync(new CommandContext(connection.Player));
+                    var nameMatches = x.Name == nameof(ParserResultExtensions.MapResult);
+                    if (!nameMatches) return false; // return early
+                    var parameters = x.GetParameters();
+                    if (parameters.Length != 3) return false; // return early
+                    var param1 = parameters[0].ParameterType;
+                    var param2 = parameters[1].ParameterType;
+                    var param3 = parameters[2].ParameterType;
+                    return param1.IsGenericType &&
+                           param1.GetGenericTypeDefinition() == typeof(ParserResult<>) &&
+                           param1.GenericTypeArguments[0].IsGenericParameter &&
+                           param2.IsGenericType &&
+                           param2.GetGenericTypeDefinition() == typeof(Func<,>) &&
+                           param3.IsGenericType &&
+                           param3.GetGenericTypeDefinition() == typeof(Func<,>) &&
+                           param3.GenericTypeArguments[0] == typeof(IEnumerable<Error>);
+                });
+                var genericMethod =
+                    methodInfo.MakeGenericMethod(commandCache.OptionsType, commandCache.OptionsType);
+                var successParam = Expression.Parameter(commandCache.OptionsType, "x");
+                var successExpression = Expression.Lambda(successParam, successParam);
+                var errorParam = Expression.Parameter(typeof(IEnumerable<Error>), "x");
+                var errorConstant = Expression.Constant(Activator.CreateInstance(commandCache.OptionsType));
+                var errorExpression = Expression.Lambda(errorConstant, errorParam);
+                var options =
+                    genericMethod.Invoke(null,
+                        [parserResult, successExpression.Compile(), errorExpression.Compile()])!;
+
+                var ctx = Activator.CreateInstance(
+                    typeof(CommandContext<>).MakeGenericType(commandCache.OptionsType),
+                    new[] { connection.Player, options })!;
+                var cmdExecuteMethodInfo = typeof(ICommandHandler<>).MakeGenericType(commandCache.OptionsType)
+                    .GetMethod(nameof(ICommandHandler<>.ExecuteAsync))!;
+                await using var scope = _serviceProvider.CreateAsyncScope();
+                var cmd = ActivatorUtilities.CreateInstance(scope.ServiceProvider, commandCache.Type);
+
+                try
+                {
+                    await (Task)cmdExecuteMethodInfo.Invoke(cmd, [ctx])!;
                 }
-            }
-            else if (_options.Value.StrictMode)
-            {
-                throw new CommandHandlerNotFoundException(command);
+                catch (Exception e)
+                {
+                    _logger.LogError(e, "Failed to execute command {Type}!", commandCache.Type.Name);
+                    connection.Player.SendChatInfo($"Failed to execute command {command}");
+                }
             }
             else
             {
-                connection.Player.SendChatInfo($"Unknown command {command}");
+                await using var scope = _serviceProvider.CreateAsyncScope();
+                var cmd = (ICommandHandler)ActivatorUtilities.CreateInstance(scope.ServiceProvider,
+                    commandCache.Type);
+                await cmd.ExecuteAsync(new CommandContext(connection.Player));
             }
+        }
+        else if (_options.Value.StrictMode)
+        {
+            throw new CommandHandlerNotFoundException(command);
+        }
+        else
+        {
+            connection.Player.SendChatInfo($"Unknown command {command}");
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using QuantumCore.API.Game;
 using QuantumCore.API.Game.World;
 
@@ -12,4 +12,10 @@ public interface ICommandManager
     bool CanUseCommand(IPlayerEntity player, string cmd);
     Task HandleAsync(IGameConnection connection, string chatline);
     Dictionary<Guid, PermissionGroup> Groups { get; }
+
+    /// <summary>
+    /// All currently registered commands, ordered by name. Use <see cref="CanUseCommand"/> to filter
+    /// this down to what a specific player is allowed to invoke.
+    /// </summary>
+    IReadOnlyList<CommandInfo> Commands { get; }
 }
