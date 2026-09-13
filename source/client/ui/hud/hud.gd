@@ -106,6 +106,22 @@ func _ready() -> void:
 	_wire_subtree(self)
 	get_tree().node_added.connect(_on_node_added)
 
+	# Keep the whole HUD clear of notches and the Android gesture bar. Every
+	# child here is anchored to this Control, so insetting the root carries the
+	# rails, the sticks and the bars inward together. Re-applied on rotation.
+	Device.safe_area_changed.connect(_apply_safe_area)
+	_apply_safe_area(Device.safe_area_insets)
+
+
+## Inset the HUD by the display cutout, in canvas units (left, top, right, bottom).
+## The root is a full-rect Control (anchors 0,0..1,1), so a negative right/bottom
+## offset pulls that edge in from the window edge.
+func _apply_safe_area(insets: Vector4) -> void:
+	offset_left = insets.x
+	offset_top = insets.y
+	offset_right = -insets.z
+	offset_bottom = -insets.w
+
 
 ## Swap the rail chat button to the exclamation glyph while a DM is unread (chat_menu emits).
 func _on_chat_unread(has_unread: bool) -> void:

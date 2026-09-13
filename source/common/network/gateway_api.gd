@@ -39,21 +39,28 @@ const ACTION_ENTER_WORLD := "enter_world"
 const ACTION_DISCONNECT := "disconnect"
 
 
-static func base_url() -> String:
-	if OS.has_feature("ekonia") or OS.has_feature("release"):
-		return "https://ws.ekoniaonline.com"
-	return "http://127.0.0.1:8088"
+## Where the client looks for its gateway when the build is a packaged one.
+## Left empty on purpose: Metin3 has no deployed gateway yet, and a fork must
+## not ship pointing at somebody else's server. Set it before cutting a release
+## (see MOBILE.md) — an empty value keeps packaged builds on localhost,
+## which fails loudly and locally instead of quietly talking to a stranger.
+const GATEWAY_URL_SETTING := "metin3/network/gateway_url"
 
-	# var command_line_arg: String = CmdlineUtils.get_parsed_args().get("api", "")
-	# if command_line_arg:
-	# 	return command_line_arg
-	#
-	# # Check if has default in ProjectSettings
-	# # (set different values for debug/release export presets)).
-	# var value: String = ProjectSettings.get_setting("network/api/base_url", "")
-	# if not value.is_empty():
-	# 	return value
-	# return "http://127.0.0.1:8088"
+## Where a from-source run looks. A developer running the server from the same
+## checkout needs no configuration at all.
+const LOCAL_GATEWAY_URL := "http://127.0.0.1:8088"
+
+
+static func base_url() -> String:
+	if OS.has_feature("metin3") or OS.has_feature("release"):
+		var configured: String = str(ProjectSettings.get_setting(GATEWAY_URL_SETTING, ""))
+		if not configured.is_empty():
+			return configured
+		push_warning(
+			"No gateway configured: set '%s' in Project Settings before release. Falling back to %s."
+			% [GATEWAY_URL_SETTING, LOCAL_GATEWAY_URL]
+		)
+	return LOCAL_GATEWAY_URL
 
 
 static func get_endpoint(path: String) -> String:

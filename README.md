@@ -1,117 +1,119 @@
-> [!NOTE]
-> **Documentation & Guides**: [**slayhorizon.github.io/godot-tiny-mmo/**](https://slayhorizon.github.io/godot-tiny-mmo/)  
-> **Latest research note**: [**Byte-Level Networking Protocol for MMO Scalability**](https://slayhorizon.github.io/godot-tiny-mmo/#/pages/notes/next_level)
-
 [![Godot Engine](https://img.shields.io/badge/Godot-4.6+-blue?logo=godot-engine)](https://godotengine.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Documentation](https://img.shields.io/badge/docs-website-blue.svg)](https://slayhorizon.github.io/godot-tiny-mmo/)
+[![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Web%20%7C%20Desktop-informational.svg)](MOBILE.md)
 
-# Godot Tiny MMO
+# Metin3
 
-**Experimental open-source MMORPG framework** built with **Godot 4**.  
-Inspired by proven MMO systems, this project pushes the boundaries of what can be achieved with Godot in large-scale multiplayer.  
-It explores scalable multiplayer architecture and efficient byte-packed networking, while remaining clear and approachable as a learning project.
+**Açık kaynaklı, mobil öncelikli MMORPG.** Godot 4 ile yazılıyor; ilk hedef
+Android, sonrasında iOS.
 
-- **Cross-platform**: browser + desktop + mobile
-- **Unified codebase**: Client & multiple servers in one repo
-  - Faster iteration, develop in one place, test in one click
-  - Separate export presets for clean client/server builds 
-- **"Custom netcode"** but stay simple  
-  - No reliance on Godot’s `MultiplayerSynchronizer/Spawner`
-  - ID-based, byte-packed protocol (PackedByteArray instead of string-based messages) for efficient replication
-  - Built to support interpolation, multi-map instances, and seamless transitions
-- **True MMO-style architecture**
-  - **Gateway server**: authentication & routing
-  - **Master server**: orchestrator, account management & bridge between gateways and world servers
-  - **World server**: host multiple concurrent maps and instances; the place where gameplay actually happens
+Proje [**godot-tiny-mmo**](https://github.com/SlayHorizon/godot-tiny-mmo)
+(MIT, © 2025-2026 slayhorizon) fork'u olarak başladı. Upstream masaüstü için
+tasarlanmış ama gerçek bir MMO mimarisi ve hazır dokunmatik altyapısıyla
+geliyordu — Metin3 bunu telefona taşıyor.
 
-<img width="1618" height="946" alt="image" src="https://github.com/user-attachments/assets/105805dd-b356-4a3a-9576-c3b0f2e2ea2a" />
-
-<details>
-<summary>See more screenshots:</summary>
-   
-![architecture-diagram](https://github.com/user-attachments/assets/78b1cce2-b070-4544-8ecd-59784743c7a0)
-
-<img width="1132" height="830" alt="image" src="https://github.com/user-attachments/assets/bfa43924-529b-4f66-99f8-88142d7a7c53" />
-
-</details>
+> **Metin2 ile ilişkisi yok.** Metin2 ve tüm görsel/işitsel varlıkları
+> Webzen telifindedir. Bu depoda Metin2'den alınmış hiçbir varlık yok ve
+> olmayacak. Ayrıntı: [MOBILE.md](MOBILE.md#5-hukuki-not).
 
 ---
 
-## Features
+## Mimari
 
-<details>
-<summary>See current and planned features:</summary>
+Upstream'den devralınan gerçek MMO sunucu yapısı:
 
-- [X] **Client-Server connection** through `WebSocketMultiplayerPeer`
-- [x] **Playable on web browser and desktop**
-- [x] **Network architecture** (see diagram below)
-- [X] **Authentication system** through gateway server with Login UI
-- [x] **Account Creation** for permanent player accounts
-- [x] **Server Selection UI** to let the player choose between different servers
-- [x] **SQLite persistence** (players, guilds, chat)
-- [x] **Guest Login** option for quick access
-- [x] **Game version check** to ensure client compatibility
+- **Gateway server** — kimlik doğrulama ve yönlendirme
+- **Master server** — orkestrasyon, hesap yönetimi, gateway ↔ world köprüsü
+- **World server** — eşzamanlı harita ve instance'ları barındırır; oyunun geçtiği yer
 
-- [x] **Character Creation**
-- [x] **Basic RPG class system** with three initial classes: Knight, Rogue, Wizard
-- [x] **Weapons** at least one usable weapon per class
-- [x] **Basic combat system**
-- [x] **Friend list**
-- [x] **Guild**
+Ağ katmanı Godot'un `MultiplayerSynchronizer/Spawner`'ına dayanmıyor; ID
+tabanlı, byte-paketli (`PackedByteArray`) kendi protokolü var. Büyük
+haritalarda grid tabanlı interest management (AOI) ile filtreleme yapılıyor.
 
-- [X] **Entity synchronization** for players within the same instance
-- [ ] **Entity interpolation** to handle rubber banding
-- [x] **Instance-based chat** for localized communication
-- [X] **Instance-based maps** with traveling between different map instances
-   - [x] **Three different maps:** Overworld, Dungeon Entrance, Dungeon
-   - [ ] **Private instances** for solo players or small groups
-- [ ] **Server-side anti-cheat** (basic validation for speed hacks, teleport hacks, etc.)
-- [x] **Server-side NPCs** (AI logic processed on the server)
-
-- [x] **Interest management** (AOI filtering using grid on large maps)
-- [x] **Web-based admin dashboard** (monitor servers, instances, and connections)
-
-</details>
+Client ve sunucular **tek depoda**, ayrı export presetleriyle.
 
 ---
 
-## Getting Started
+## Durum
 
-To run the project, follow these steps:
+| | |
+|---|---|
+| Çalışan | Kimlik doğrulama, hesap/karakter oluşturma, 3 sınıf (Knight, Rogue, Wizard), savaş, lonca, arkadaş listesi, instance'lı sohbet, haritalar arası geçiş, sunucu taraflı NPC, SQLite kalıcılık, web tabanlı admin paneli |
+| Mobilde hazır | Twin-stick dokunmatik kontrol, girdi tipi otomatik algılama, dokunmayla etkileşim, güvenli alan (çentik/gesture bar), mobil en-boy oranı, Android export preseti |
+| Eksik | HUD ölçeklendirme, giriş ekranı güvenli alanı, Metin3 markası (logo/metinler), gerçek cihazda performans profili, entity interpolation |
 
-1. Open the project in **Godot 4.6**.
-2. Go to Debug tab, select **"Customizable Run Instance..."**.
-3. Enable **Multiple Instances** and set the count to **4 or more**.
-4. Under **Feature Tags**, ensure you have:
-   - Exactly **one** "gateway-server" tag.
-   - Exactly **one** "master-server" tag.
-   - Exactly **one** "world-server" tag.
-   - At least **one or more** "client" tags.
-5. (Optional) Under **Launch Arguments**:
-   - For servers, add **--headless** to prevent empty windows.
-   - For any, add **--config=config_file_path.cfg** to use non-default config path.
-6. Run the project (Press F5).
-
-Setup example 
-(More details in the wiki [How to use "Customize Run Instances..."](https://slayhorizon.github.io/godot-tiny-mmo/#/pages/customize_run_instances):
-<img width="1580" alt="debug-screenshot" src="https://github.com/user-attachments/assets/cff4dd67-00f2-4dda-986f-7f0bec0a695e">
+Ayrıntılı mobil durumu ve yol haritası: **[MOBILE.md](MOBILE.md)**
 
 ---
 
-## Contributing
+## Geliştirmeye başlama
 
-Feel free to fork the repository and submit a pull request if you have ideas or improvements!  
-You can also open an [**Issue**](https://github.com/SlayHorizon/godot-tiny-mmo/issues) to discuss bugs or feature requests.
+### Masaüstünde (tam yığın, tek Godot)
+
+1. Projeyi **Godot 4.6.3** ile aç.
+2. `Debug → Customizable Run Instance...`
+3. **Multiple Instances**'ı aç, sayıyı **4 veya daha fazla** yap.
+4. **Feature Tags** altında:
+   - Tam **bir** `gateway-server`
+   - Tam **bir** `master-server`
+   - Tam **bir** `world-server`
+   - **En az bir** `client`
+5. (İsteğe bağlı) **Launch Arguments**: sunucular için `--headless`,
+   farklı config için `--config=dosya_yolu.cfg`.
+6. F5.
+
+### Android'de
+
+`MOBILE.md` → [Android build alma](MOBILE.md#3-android-build-alma).
+Özet:
+
+```bash
+godot --headless --path . --export-debug "Android" exports/android/metin3.apk
+adb install -r exports/android/metin3.apk
+```
+
+Telefon ayrı bir cihaz olduğu için `127.0.0.1` çalışmaz —
+`adb reverse tcp:8088 tcp:8088` kullan ya da `metin3/network/gateway_url`
+proje ayarını geliştirme makinenin LAN IP'sine çevir.
 
 ---
 
-## Credits
+## Upstream ile senkron kalma
 
-Thanks to everyone who made this project possible:
-- **Maps** designed by [@higaslk](https://github.com/higaslk)
-- Valuable help and feedback: [@Jackiefrost](https://github.com/Jackietkfrost), [@d-Cadrius](https://github.com/d-Cadrius) and multiple anonymous contributors
-- Also [@Anokolisa](https://anokolisa.itch.io/dungeon-crawler-pixel-art-asset-pack) for allowing us to use its assets for this open source project!
+Depo upstream'i `upstream` remote'u olarak taşıyor, tüm geçmişiyle:
 
-## License
-Source code under the [MIT License](https://github.com/SlayHorizon/godot-tiny-mmo/blob/main/LICENSE).
+```bash
+git remote add upstream https://github.com/SlayHorizon/godot-tiny-mmo.git
+git fetch upstream
+git merge upstream/main
+```
+
+Mobil değişiklikler bilerek dar tutuldu (yeni bir autoload, HUD kökünde bir
+inset, proje ayarlarında `.mobile` override'ları) — böylece upstream'den gelen
+güncellemeler çakışmadan birleşiyor.
+
+---
+
+## Katkı
+
+Fork'layıp PR açabilirsiniz. Tartışma için
+[Issue](https://github.com/tenkonur267-tech/Metin3/issues) açın.
+
+---
+
+## Teşekkür
+
+Upstream projeyi ve onu mümkün kılanları:
+
+- [**@SlayHorizon**](https://github.com/SlayHorizon) — godot-tiny-mmo'nun yazarı
+- **Haritalar**: [@higaslk](https://github.com/higaslk)
+- Yardım ve geri bildirim: [@Jackiefrost](https://github.com/Jackietkfrost),
+  [@d-Cadrius](https://github.com/d-Cadrius) ve isimsiz katkıcılar
+- [@Anokolisa](https://anokolisa.itch.io/dungeon-crawler-pixel-art-asset-pack) —
+  varlık paketini açık kaynak projede kullanma izni için
+
+## Lisans
+
+Kaynak kod [MIT Lisansı](LICENSE) altında, telif upstream yazarına ait
+(© 2025-2026 slayhorizon). Ticari kullanım dahil serbest; tek şart telif
+bildiriminin korunması.

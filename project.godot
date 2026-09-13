@@ -14,11 +14,11 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 [application]
 
-config/name="Ekonia"
+config/name="Metin3"
 config/version="0.28.0"
 run/main_scene="res://source/common/main.tscn"
 config/use_custom_user_dir=true
-config/custom_user_dir_name="slayhorizon"
+config/custom_user_dir_name="metin3"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 boot_splash/show_image=false
 config/icon="res://assets/project_icon/ekonia_e_logo.png"
@@ -29,6 +29,7 @@ buses/default_bus_layout="uid://6a8ehqx05sqs"
 
 [autoload]
 
+Device="*res://source/client/autoload/device.gd"
 ClientState="*res://source/client/autoload/client_state.gd"
 Client="*res://source/client/autoload/client.tscn"
 Toaster="*res://source/client/autoload/toaster.gd"
@@ -51,6 +52,15 @@ window/size/viewport_height=540
 window/size/window_width_override=960
 window/size/window_height_override=540
 window/stretch/mode="canvas_items"
+; Desktop keeps the authored 16:9 frame. Phones do not come in 16:9 — a 20:9
+; or 21:9 panel under the default "keep" aspect gets pillarboxed, wasting a
+; fifth of the screen on black. "expand" hands those extra columns to the
+; viewport instead, so the world is wider on a tall phone rather than letterboxed.
+window/stretch/aspect.mobile="expand"
+; Sensor landscape: the game is laid out wide, but honour which way up the
+; player is holding the device so the notch doesn't land on their thumb.
+; 4 == DisplayServer.SCREEN_SENSOR_LANDSCAPE.
+window/handheld/orientation=4
 
 [editor_plugins]
 
@@ -197,6 +207,13 @@ pointing/emulate_mouse_from_touch.mobile=true
 [internationalization]
 
 locale/translations=PackedStringArray("res://data/translations/translations.en_US.translation", "res://data/translations/translations.es_ES.translation", "res://data/translations/translations.pt_BR.translation")
+
+[metin3]
+
+; Gateway the PACKAGED client talks to. Empty = fall back to localhost, which
+; is what a fork without a deployed server should do (see GatewayAPI.base_url).
+; Fill this in before cutting a release build.
+network/gateway_url=""
 
 [layer_names]
 

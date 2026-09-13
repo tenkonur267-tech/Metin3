@@ -22,7 +22,10 @@ on:
 env:
   GODOT_REF: "4.6.3-stable"        # editor + source tag
   GODOT_VERSION_DIR: "4.6.3.stable" # export_templates subfolder name
-  ITCH_GAME: "slayhorizon/ekonia-online"
+  # Set ITCH_GAME as a repository variable (Settings -> Secrets and variables ->
+  # Actions -> Variables). Left unset, the publish steps below skip rather than
+  # push a Metin3 build at somebody else's itch.io page.
+  ITCH_GAME: ${{ vars.ITCH_GAME }}
 
 jobs:
   release:
@@ -193,18 +196,18 @@ jobs:
           want() { [ "$PLATFORMS" = "all" ] || [ "$PLATFORMS" = "$1" ]; }
           mkdir -p exports/windows exports/linux exports/web exports/android
           if want windows; then
-            ./godot --headless --path . --export-release "Windows" exports/windows/ekonia_online.exe
+            ./godot --headless --path . --export-release "Windows" exports/windows/metin3.exe
           fi
           if want linux; then
-            ./godot --headless --path . --export-release "Linux" exports/linux/ekonia_online.x86_64
-            chmod +x exports/linux/ekonia_online.x86_64
+            ./godot --headless --path . --export-release "Linux" exports/linux/metin3.x86_64
+            chmod +x exports/linux/metin3.x86_64
           fi
           if want web; then
             ./godot --headless --path . --export-release "Web" exports/web/index.html
           fi
           if want android; then
             if [ -f "$RUNNER_TEMP/release.keystore" ]; then
-              ./godot --headless --path . --export-release "Android" exports/android/ekonia.apk
+              ./godot --headless --path . --export-release "Android" exports/android/metin3.apk
             else
               echo "Android selected but keystore not configured — skipping."
             fi
@@ -225,15 +228,19 @@ jobs:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
           set -euo pipefail
+          if [ -z "${ITCH_GAME:-}" ]; then
+            echo "ITCH_GAME repository variable is unset - skipping the itch.io publish."
+            exit 0
+          fi
           want() { [ "$PLATFORMS" = "all" ] || [ "$PLATFORMS" = "$1" ]; }
           if want windows; then ./butler push exports/windows "${ITCH_GAME}:windows"; fi
           if want linux;   then ./butler push exports/linux   "${ITCH_GAME}:linux"; fi
           if want web;     then ./butler push exports/web     "${ITCH_GAME}:web"; fi
-          if want android && [ -f exports/android/ekonia.apk ]; then
+          if want android && [ -f exports/android/metin3.apk ]; then
             # Push only the .apk, NOT the whole dir — Godot also drops an
-            # ekonia.apk.idsig (APK Signature Scheme v4, for incremental installs)
+            # metin3.apk.idsig (APK Signature Scheme v4, for incremental installs)
             # that sideloaders don't need. Pushing the bare file makes itch serve
             # the .apk directly (no .zip → no file-explorer/unzip step on Android).
-            ./butler push exports/android/ekonia.apk "${ITCH_GAME}:android"
+            ./butler push exports/android/metin3.apk "${ITCH_GAME}:android"
           fi
           ./butler status "${ITCH_GAME}"
