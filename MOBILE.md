@@ -151,7 +151,26 @@ olduğu için localhost işe yaramaz — ya `adb reverse tcp:8088 tcp:8088` kull
 ya da `metin3/network/gateway_url` ayarını geliştirme makinenin LAN IP'sine
 çevir.
 
-### CI
+### CI — hiçbir şey kurmadan APK almak
+
+`.github/workflows/android-debug.yml` **her push'ta** çalışır ve kurulabilir
+bir debug APK'sını artifact olarak bırakır. Godot, Android SDK, keystore —
+hiçbirine ihtiyacınız yok:
+
+1. GitHub'da depo → **Actions** sekmesi
+2. En üstteki **Android debug APK** çalışmasına tıkla
+3. Sayfanın altında **Artifacts** → `metin3-debug-apk-<sha>` indir
+4. Zip'ten çıkan `metin3.apk`'yı telefona at ve kur
+
+> Her çalışma kendi tek kullanımlık debug keystore'unu üretir, yani APK'lar
+> birbirinin üzerine **güncellenmez**. Yeni sürümü kurmadan önce eskisini
+> kaldırın. Bu build mağazaya yüklenemez; onun yolu aşağıdaki release
+> pipeline'ı.
+
+Workflow logunda manifest de basılıyor (paket adı, sürüm, izinler), yani
+bozuk bir ayarı APK'yı indirmeden görebilirsiniz.
+
+### CI — release
 
 `.github/workflows/release.yml` bir `v*` tag'i push edildiğinde çalışır.
 Android adımları `ANDROID_KEYSTORE_BASE64` secret'ına bağlı; itch.io yayını

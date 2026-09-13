@@ -1,0 +1,131 @@
+name: Android debug APK
+
+# Builds an installable, debug-signed APK on every push to a branch and on
+# demand, then leaves it as a downloadable artifact. This is the "put it on a
+# phone right now" path — no Godot install, no Android SDK, no keystore of your
+# own. The release pipeline (release.yml) is the separate, tag-driven, properly
+# signed one; nothing here ever publishes.
+#
+# The debug keystore is generated fresh each run, so the APK is NOT upgradeable
+# over a previous install and must never reach a store. Uninstall the old build
+# before installing a new one (signatures differ).
+on:
+  push:
+    branches-ignore: ["gh-pages"]
+  workflow_dispatch:
+
+env:
+  GODOT_REF: "4.6.3-stable"
+  GODOT_VERSION_DIR: "4.6.3.stable"
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Fetch headless Godot editor ${{ env.GODOT_REF }}
+        run: |
+          set -euo pipefail
+          curl -fL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_REF}/Godot_v${GODOT_REF}_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_REF}_linux.x86_64" godot
+          chmod +x godot
+          ./godot --headless --version
+
+      - name: Install official export templates
+        run: |
+          set -euo pipefail
+          # release.yml uses slim, purpose-built templates from build-templates.yml.
+          # This job deliberately uses the stock .tpz instead: it has no
+          # cross-workflow dependency, so it still works on a fresh fork.
+          curl -fL -o templates.tpz \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_REF}/Godot_v${GODOT_REF}_export_templates.tpz"
+          unzip -q templates.tpz -d tpl
+          DEST="$HOME/.local/share/godot/export_templates/${GODOT_VERSION_DIR}"
+          mkdir -p "$(dirname "$DEST")"
+          mv tpl/templates "$DEST"
+          echo "$GODOT_VERSION_DIR" > "$DEST/version.txt"
+          ls "$DEST" | grep android
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK packages
+        run: |
+          set -eo pipefail
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          # Must match GODOT_REF's platform/android/java/app/config.gradle.
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "build-tools;36.1.0" "platforms;android-36"
+
+      - name: Generate a throwaway debug keystore
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.android"
+          # Alias/password are the Android debug-signing convention; Godot's
+          # export expects to be told them explicitly (below).
+          keytool -genkeypair -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Point Godot at the SDK, JDK and keystore
+        run: |
+          set -euo pipefail
+          # The editor-settings filename carries MAJOR.MINOR (4.6.3 -> 4.6).
+          # Named editor_settings-4.tres it is ignored and the export fails with
+          # "Invalid Android SDK path in Editor Settings".
+          mkdir -p "$HOME/.config/godot"
+          ES="$HOME/.config/godot/editor_settings-$(echo "$GODOT_REF" | cut -d. -f1,2).tres"
+          cat > "$ES" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          echo "Wrote $ES"
+
+      - name: Import project
+        run: |
+          # Cold import first: exporting straight from a fresh checkout segfaults
+          # (Godot 4 CLI quirk — same workaround release.yml uses).
+          ./godot --headless --path . --import || true
+
+      - name: Export debug APK
+        run: |
+          set -euo pipefail
+          mkdir -p exports/android
+          ./godot --headless --path . --export-debug "Android" exports/android/metin3.apk
+          test -s exports/android/metin3.apk
+
+      - name: Report what was built
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          AAPT="$(ls "$SDK"/build-tools/*/aapt2 | tail -1)"
+          ls -lh exports/android/metin3.apk
+          # Surface the manifest in the log so a bad package id, a missing
+          # version name or a dropped permission is visible without downloading.
+          "$AAPT" dump badging exports/android/metin3.apk \
+            | grep -E "^package|^application-label:|^sdkVersion|^targetSdkVersion|^native-code|uses-permission" \
+            || true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: metin3-debug-apk-${{ github.sha }}
+          path: exports/android/metin3.apk
+          if-no-files-found: error
+          retention-days: 14

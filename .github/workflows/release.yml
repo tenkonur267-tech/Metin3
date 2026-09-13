@@ -154,11 +154,17 @@ jobs:
           set -euo pipefail
           # Headless Godot reads the Android SDK / JDK paths from editor settings.
           # A minimal file with just these two keys is enough; Godot fills the
-          # rest with defaults on load. (VERIFY on first run: if Godot reports an
-          # "invalid Android SDK path", confirm this filename — Godot 4 uses
-          # editor_settings-4.tres — and that both paths exist.)
+          # rest with defaults on load.
+          #
+          # The filename carries MAJOR.MINOR, not just MAJOR: 4.6.3 reads
+          # editor_settings-4.6.tres. Written as editor_settings-4.tres it is
+          # simply ignored, Godot falls back to defaults, and the export dies
+          # with "Invalid Android SDK path in Editor Settings" — so derive the
+          # name from GODOT_REF instead of hardcoding it.
           mkdir -p "$HOME/.config/godot"
-          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          ES_NAME="editor_settings-$(echo "$GODOT_REF" | cut -d. -f1,2).tres"
+          echo "Writing $ES_NAME"
+          cat > "$HOME/.config/godot/$ES_NAME" <<EOF
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
