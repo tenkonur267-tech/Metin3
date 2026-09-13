@@ -11,6 +11,13 @@
     </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Net.Compilers.Toolset" Version="5.6.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CSharpIsNullAnalyzer" Version="0.1.593">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
