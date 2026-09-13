@@ -183,25 +183,49 @@ atlanır, build kırılmaz.
 
 Öncelik sırasıyla:
 
-1. **HUD ölçeklendirme.** `Device.suggested_ui_scale` hesaplanıyor ama
+1. **Geniş orandaki iki kadraj hatası.** `aspect.mobile="expand"` telefonun
+   fazladan sütunlarını viewport'a veriyor — siyah bant gitti, ama görüş alanı
+   genişleyince iki yerde kadraj açığı ortaya çıkıyor. İkisi de 1560x720'de
+   oyunu çalıştırıp çekilen görüntülerle tespit edildi:
+   - **Giriş ekranı arka planı kadrajı kapatmıyor.** `gateway.tscn` içindeki
+     `Background` sabit ölçekli bir `Sprite2D` (`scale = 0.6`); 16:9'dan geniş
+     her oranda sağda `BackgroundRect`'in düz grisi açıkta kalıyor. Arka planı
+     kadraja göre ölçekleyen bir çözüm gerekiyor (viewport'a göre örtme).
+   - **Dünya kamerası harita kenarının dışını gösteriyor.** Geniş viewport'ta
+     oda/harita sınırının ötesi siyah kalıyor. Kamera harita sınırlarına
+     kırpılmalı, ya da haritalara kenar payı eklenmeli.
+
+   Alternatif varsayılan (`keep`) bu ikisini gizler ama bu sefer ekranın
+   beşte biri siyah bant olur. Yani doğru çözüm `expand`'i bırakıp yukarıdaki
+   ikisini düzeltmek, geri dönmek değil.
+
+2. **HUD ölçeklendirme.** `Device.suggested_ui_scale` hesaplanıyor ama
    **uygulanmıyor**. Sebebi tasarımsal: `canvas_items` stretch modunda canvas'ı
    ölçeklemek dünyayı da büyütür, yani görüş alanını daraltır — bu bir düzen
    kararı değil, bir denge kararı. Doğru çözüm HUD temasını ayrı ölçeklemek
    (`source/client/ui/themes/theme_horizon.tres`), dünyayı değil.
-2. **Giriş ekranı güvenli alanı.** `gateway.tscn` kökü insetlenmedi: altındaki
+3. **Giriş ekranı güvenli alanı.** `gateway.tscn` kökü insetlenmedi: altındaki
    `BackgroundRect` tam ekran anchor'lı, insetlense çentik bölgesinde boyasız
    şerit kalırdı. Ana panel ortalanmış olduğu için zaten çentikten uzak, ama
    köşedeki sürüm etiketi ve bağlantı butonları ayrı ele alınmalı.
-3. **Marka.** Kod tarafı (paket kimliği, feature tag, build çıktıları, kullanıcı
+4. **Marka.** Kod tarafı (paket kimliği, feature tag, build çıktıları, kullanıcı
    veri dizini) Metin3'e geçti. **Görünen** metinler ve görseller hâlâ upstream'in:
    `gateway.tscn` başlıkları, `data/translations/translations.csv`,
    `help_menu.gd` içindeki Discord/web bağlantıları, `assets/project_icon/`
    içindeki logo. Bunlar için önce Metin3'ün kendi logosu/sitesi/Discord'u lazım.
-4. **Performans profili.** Orta segment bir Android cihazda kare süresi ölçülmedi.
+5. **Performans profili.** Orta segment bir Android cihazda kare süresi ölçülmedi.
    Şüpheli yerler: kalabalık haritalarda oyuncu sayısı, `weather_layer` partikülleri,
    HUD'un her karede yeniden çizilen parçaları.
-5. **Dokunmatik ergonomi.** Stickler ekran kenarına ne kadar yakın? Menü
+6. **Dokunmatik ergonomi.** Stickler ekran kenarına ne kadar yakın? Menü
    butonları başparmak erişiminde mi? Gerçek cihazda test edilmeli.
+
+Bu bulgular oyunu gerçekten çalıştırarak çıktı. Tekrarlamak için: sanal
+ekran (`Xvfb :99`) + yazılımsal GL (`LIBGL_ALWAYS_SOFTWARE=1`), sunucu yığını
+`--mode=master-server|gateway-server|world-server`, sonra client'ı
+`--resolution 1560x720 --rendering-driver opengl3` ile açıp viewport'u
+`get_viewport().get_texture().get_image().save_png()` ile kaydetmek yeterli.
+Masaüstünde telefon kadrajını görmek için `window/stretch/aspect="expand"`
+geçici olarak açılmalı (mobil override sadece mobil export'ta devrede).
 
 ---
 
