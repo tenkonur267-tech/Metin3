@@ -1,4 +1,4 @@
-﻿using CommandLine;
+using CommandLine;
 using Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,6 +14,7 @@ using QuantumCore.Caching.InMemory;
 using QuantumCore.Game;
 using QuantumCore.Game.Extensions;
 using QuantumCore.Game.Persistence;
+using QuantumCore.Web;
 
 await Parser.Default.ParseArguments<SingleRunArgs>(args)
     .WithParsedAsync(async options =>
@@ -24,6 +25,7 @@ await Parser.Default.ParseArguments<SingleRunArgs>(args)
         hostBuilder.Services.AddAuthServices();
         hostBuilder.Services.AddHostedService<GameServer>();
         hostBuilder.Services.AddHostedService<AuthServer>();
+        hostBuilder.Services.AddWebGateway(hostBuilder.Configuration);
         hostBuilder.Services.AddSingleton<IGameServer>(provider =>
             provider.GetServices<IHostedService>().OfType<GameServer>().Single());
         hostBuilder.Services.AddSingleton<IServerBase>(provider =>

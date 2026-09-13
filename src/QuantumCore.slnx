@@ -16,6 +16,7 @@
         <Project Path="Libraries/Auth.Server/Auth.Server.csproj"/>
         <Project Path="Libraries/Game.Commands/Game.Commands.csproj"/>
         <Project Path="Libraries/Game.Server/Game.Server.csproj"/>
+        <Project Path="Libraries/Web.Gateway/Web.Gateway.csproj"/>
     </Folder>
     <Folder Name="/Plugins/">
         <Project Path="Plugins/ExamplePlugin/ExamplePlugin.csproj"/>

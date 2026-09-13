@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
@@ -21,6 +21,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\..\Libraries\Auth.Server\Auth.Server.csproj"/>
+        <ProjectReference Include="..\..\Libraries\Web.Gateway\Web.Gateway.csproj"/>
         <ProjectReference Include="..\..\Libraries\Game.Server\Game.Server.csproj"/>
     </ItemGroup>
 

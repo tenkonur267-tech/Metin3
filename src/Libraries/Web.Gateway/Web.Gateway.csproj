@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <RootNamespace>QuantumCore.Web</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\CorePluginAPI\CorePluginAPI.csproj"/>
+        <ProjectReference Include="..\..\Libraries\Game.Server\Game.Server.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- ContentWithTargetPath (unlike Content) also flows into the output of projects that
+             reference this one, so the executables get the web client next to their binary. -->
+        <ContentWithTargetPath Include="wwwroot\**\*">
+            <TargetPath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </ContentWithTargetPath>
+    </ItemGroup>
+
+</Project>
