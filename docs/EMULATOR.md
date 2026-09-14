@@ -110,3 +110,50 @@ Metin2 sunucu otoriter bir oyundur: can, hasar ve item sunucuda tutulur.
 İstemcideki değeri değiştirmek çoğu zaman yalnızca ekrandaki sayıyı değiştirir.
 Bulunan değerleri okumak (bot kararları için) her zaman işe yarar; yazmak
 yalnızca sunucunun doğrulamadığı alanlarda işe yarar.
+
+## Oyun "root tespit edildi" diyorsa
+
+Oyunun gördüğü root ile araçların ihtiyaç duyduğu root aynı şey değil, ve bu
+ayrım sorunu çözer.
+
+Emülatörlerin "Root izni" anahtarı misafir sisteme bir `su` binary'si ve bir
+Superuser uygulaması kurar. Anti-root kontrolleri tam olarak bunlara bakar:
+`/system/bin/su` var mı, Superuser paketi kurulu mu, `su` çalıştırılabiliyor mu.
+
+Oysa emülatörlerde `adbd` zaten root olarak çalışır — anahtar **kapalıyken de**
+`adb shell` size uid 0 verir. Yani:
+
+1. Emülatör ayarlarından **root iznini kapatın**, yeniden başlatın.
+2. Doğrulayın:
+
+```bash
+adb shell id
+```
+
+`uid=0(root)` görüyorsanız iş bitti: oyun ortada `su` göremez, araçlar yine de
+belleği okur. Araçlar bunu kendiliğinden algılar — `su` gerekmiyorsa
+kullanmazlar. Zorlamak isterseniz `--no-su` verin:
+
+```bash
+python3 m3tools/cli.py ps -D adb --no-su hardmobile
+```
+
+`adb shell id` size `uid=2000(shell)` diyorsa o emülatörde adbd root değildir.
+Sırayla deneyin:
+
+* `adb root` (bazı emülatörler bunu destekler)
+* Emülatörün "geliştirici" / "hata ayıklama" modunu açın
+* Başka bir emülatör (MEmu'nun adbd'si genelde root çalışır)
+
+### Bu da yetmezse: Magisk + DenyList
+
+Root'u tamamen gizlemek gerekiyorsa emülatöre Magisk kurup oyunu **DenyList**'e
+eklemek gerekir; Zygisk oyunun sürecinde root izlerini gizler. Bu daha uğraşlı
+ve emülatöre göre değişir, ama anti-root kontrollerine karşı kalıcı çözümdür.
+
+### Neden Waydroid bu işte daha iyi
+
+Linux'taysanız Waydroid bu sorunu hiç yaşatmaz: misafir sistemde `su` yoktur,
+Superuser uygulaması yoktur, oyun tertemiz bir Android görür — ama siz host'ta
+zaten root olduğunuz için oyunun süreci sıradan bir Linux süreci olarak
+okunabilir. Anti-root açısından en temiz kurulum budur.

@@ -267,3 +267,39 @@ class TestScanDevicePersistence(unittest.TestCase):
             with open(path, "w") as fh:
                 json.dump({"pid": 1, "type": "i32", "candidates": {}}, fh)
             self.assertEqual(Scan.load(path).device, "local")
+
+
+class TestRootDetection(unittest.TestCase):
+    """Choosing between a root adb shell and `su`, without a device."""
+
+    def device(self, plain_root: bool, su_root: bool):
+        from m3tools.mem.remote import AdbDevice
+
+        dev = AdbDevice.__new__(AdbDevice)
+        dev.adb, dev.serial, dev.su, dev.timeout = "adb", None, None, 10
+        dev._whoami = lambda su: (
+            "uid=0(root) gid=0(root)" if (su and su_root) or (not su and plain_root)
+            else "uid=2000(shell) gid=2000(shell)"
+        )
+        return dev
+
+    def test_prefers_a_plain_shell_that_is_already_root(self):
+        """Using su would mean a su binary the game can detect."""
+        dev = self.device(plain_root=True, su_root=True)
+        self.assertIn("uid=0", dev.detect_root())
+        self.assertFalse(dev.su)
+
+    def test_falls_back_to_su_when_the_plain_shell_is_not_root(self):
+        dev = self.device(plain_root=False, su_root=True)
+        self.assertIn("uid=0", dev.detect_root())
+        self.assertTrue(dev.su)
+
+    def test_reports_non_root_rather_than_pretending(self):
+        dev = self.device(plain_root=False, su_root=False)
+        self.assertNotIn("uid=0", dev.detect_root())
+
+    def test_an_explicit_choice_is_respected(self):
+        dev = self.device(plain_root=True, su_root=True)
+        dev.su = True
+        dev.detect_root()
+        self.assertTrue(dev.su, "--su verilmisse otomatik tespit ezmemeli")

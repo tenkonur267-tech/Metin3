@@ -31,7 +31,7 @@ class AdbDevice:
 
     name = "adb"
 
-    def __init__(self, serial: str | None = None, su: bool = True,
+    def __init__(self, serial: str | None = None, su: bool | None = None,
                  adb: str = "adb", timeout: float = 120):
         if shutil.which(adb) is None:
             raise AdbError(
@@ -39,25 +39,31 @@ class AdbDevice:
             )
         self.adb = adb
         self.serial = serial
+        # None means "work it out": prefer a plain shell that is already root,
+        # because needing `su` means the guest carries a su binary the game can
+        # see. Emulators usually run adbd as root even with their root toggle
+        # off, which is exactly the combination we want.
         self.su = su
         self.timeout = timeout
 
     # -- plumbing ----------------------------------------------------------
-    def _argv(self, mode: str, command: str) -> list[str]:
+    def _argv(self, mode: str, command: str, su: bool | None = None) -> list[str]:
         argv = [self.adb]
         if self.serial:
             argv += ["-s", self.serial]
         argv.append(mode)
-        if self.su:
+        use_su = self.su if su is None else su
+        if use_su:
             argv += ["su", "-c", command]
         else:
             argv += ["sh", "-c", command]
         return argv
 
-    def exec_out(self, command: str, timeout: float | None = None) -> bytes:
+    def exec_out(self, command: str, timeout: float | None = None,
+                 su: bool | None = None) -> bytes:
         """Run a device command, returning raw stdout (binary safe)."""
         proc = subprocess.run(
-            self._argv("exec-out", command),
+            self._argv("exec-out", command, su),
             capture_output=True,
             timeout=timeout or self.timeout,
         )
@@ -66,8 +72,31 @@ class AdbDevice:
             raise AdbError(err or f"adb cikis kodu {proc.returncode}")
         return proc.stdout
 
-    def shell(self, command: str, timeout: float | None = None) -> str:
-        return self.exec_out(command, timeout).decode("utf-8", "replace")
+    def shell(self, command: str, timeout: float | None = None,
+              su: bool | None = None) -> str:
+        return self.exec_out(command, timeout, su).decode("utf-8", "replace")
+
+    def _whoami(self, su: bool) -> str:
+        try:
+            return self.exec_out("id", timeout=20, su=su).decode("utf-8", "replace")
+        except (AdbError, subprocess.SubprocessError, OSError):
+            return ""
+
+    def detect_root(self) -> str:
+        """Settle on the least visible way of getting uid 0.
+
+        A plain shell that is already root is preferable to `su`: it means the
+        guest has no su binary for the app to find, which is what an
+        anti-root check looks for.
+        """
+        if self.su is None:
+            if "uid=0" in self._whoami(su=False):
+                self.su = False
+            elif "uid=0" in self._whoami(su=True):
+                self.su = True
+            else:
+                self.su = False
+        return self._whoami(self.su).strip()
 
     # -- checks ------------------------------------------------------------
     def devices(self) -> list[tuple[str, str]]:
@@ -96,11 +125,14 @@ class AdbDevice:
             raise AdbError(
                 "birden fazla cihaz bagli, --serial ile secin: " + ", ".join(online)
             )
-        who = self.shell("id").strip()
+        who = self.detect_root()
         if "uid=0" not in who:
             raise AdbError(
-                f"root alinamadi (id: {who or 'bos'}). Emulator ayarlarindan "
-                "root iznini acip yeniden baslatin."
+                f"root alinamadi (id: {who or 'bos'}).\n"
+                "Emulatorde: adb'nin root calistigini dogrulayin "
+                "('adb shell id'). LDPlayer/MEmu'da adbd genelde zaten "
+                "root'tur; degilse emulator ayarlarindan root iznini acin.\n"
+                "Gercek cihazda: root gerekiyor."
             )
         return who
 

@@ -37,7 +37,8 @@ TABLE_FILE = os.path.join(STATE_DIR, "offsets.json")
 
 def _device(args):
     return devmod.open_device(getattr(args, "device", "local"),
-                              getattr(args, "serial", None))
+                              getattr(args, "serial", None),
+                              getattr(args, "su", None))
 
 
 def _target(args):
@@ -145,7 +146,8 @@ def cmd_next(args) -> None:
         if op is None:
             raise SystemExit("-v DEGER veya --op {changed,increased,...} verin")
     t0 = time.time()
-    dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+    dev = devmod.open_device(scan.device, getattr(args, "serial", None),
+                             getattr(args, "su", None))
     with dev.open_memory(scan.pid) as mem:
         n = scan.refine(mem, op, arg)
         regions = mem.read_maps()
@@ -157,7 +159,8 @@ def cmd_next(args) -> None:
 
 def cmd_list(args) -> None:
     scan = _load_scan()
-    dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+    dev = devmod.open_device(scan.device, getattr(args, "serial", None),
+                             getattr(args, "su", None))
     with dev.open_memory(scan.pid) as mem:
         scan.refresh(mem)
         regions = mem.read_maps()
@@ -180,7 +183,8 @@ def cmd_watch(args) -> None:
                 print(f"\r0x{addr:x} = {shown!r:<24}", end="", flush=True)
                 time.sleep(args.interval)
     scan = _load_scan()
-    dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+    dev = devmod.open_device(scan.device, getattr(args, "serial", None),
+                             getattr(args, "su", None))
     with dev.open_memory(scan.pid) as mem:
         regions = mem.read_maps()
         while True:
@@ -221,7 +225,8 @@ def cmd_pointer(args) -> None:
         dev, pid = _target(args)
     else:
         scan = _load_scan()
-        dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+        dev = devmod.open_device(scan.device, getattr(args, "serial", None),
+                             getattr(args, "su", None))
         pid = scan.pid
     target = int(args.address, 0)
 
@@ -396,6 +401,10 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("-D", "--device", default="local", choices=["local", "adb"],
                         help="hedefin nerede oldugu (varsayilan: local)")
     common.add_argument("--serial", help="birden fazla adb cihazi varsa seri no")
+    common.add_argument("--su", dest="su", action="store_true", default=None,
+                        help="adb komutlarini 'su -c' ile calistirmaya zorla")
+    common.add_argument("--no-su", dest="su", action="store_false",
+                        help="'su' kullanma; adb kabugu zaten root olmali")
 
     sub = p.add_subparsers(dest="cmd", required=True)
 

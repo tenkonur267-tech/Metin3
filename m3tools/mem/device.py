@@ -58,14 +58,17 @@ def resolve_pid(device, target: str) -> int:
     return hits[0][0]
 
 
-def open_device(spec: str, serial: str | None = None):
+def open_device(spec: str, serial: str | None = None, su: bool | None = None):
     """spec: 'local' or 'adb'."""
     if spec == "local":
         return LocalDevice()
     if spec == "adb":
-        from .remote import AdbDevice
+        from .remote import AdbDevice, AdbError
 
-        dev = AdbDevice(serial=serial)
-        dev.check()
+        dev = AdbDevice(serial=serial, su=su)
+        try:
+            dev.check()
+        except AdbError as e:
+            raise SystemExit(str(e)) from None
         return dev
     raise SystemExit(f"bilinmeyen cihaz '{spec}' (local veya adb)")
