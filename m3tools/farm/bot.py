@@ -13,10 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..mem import proc
-from ..mem.rw import ProcessMemory
-from ..mem.table import OffsetTable, ResolvedTable
 from . import expr
 from .input import InputBackend, auto_backend
+from .sources import MemorySource, ScreenSource, StateSource
 
 
 @dataclass
@@ -48,6 +47,9 @@ class Rule:
 class BotConfig:
     process: str
     poll_interval: float = 0.25
+    # "memory" resolves pointer chains; "screen" probes pixels.
+    source: str = "memory"
+    probes: dict[str, dict] = field(default_factory=dict)
     rules: list[Rule] = field(default_factory=list)
     # Derived values the rules can reference, e.g. "hp_pct": "100*hp/hp_max"
     derived: dict[str, str] = field(default_factory=dict)
@@ -63,6 +65,8 @@ class BotConfig:
         return cls(
             process=d["process"],
             poll_interval=float(d.get("poll_interval", 0.25)),
+            source=d.get("source", "memory"),
+            probes=d.get("probes", {}),
             rules=[Rule.from_json(r) for r in d.get("rules", [])],
             derived=d.get("derived", {}),
             points={k: list(v) for k, v in d.get("points", {}).items()},
@@ -75,30 +79,42 @@ class Bot:
     def __init__(
         self,
         config: BotConfig,
-        table: OffsetTable,
+        source: StateSource,
         *,
         dry_run: bool = False,
         verbose: bool = False,
     ):
         self.config = config
-        self.table = table
+        self.source = source
         self.dry_run = dry_run
         self.verbose = verbose
-        self.pid = proc.resolve_pid(config.process)
-        self.mem = ProcessMemory(self.pid)
-        self.live = ResolvedTable(table, self.mem)
         self.input: InputBackend | None = None
         if not dry_run:
             self.input = auto_backend(config.backend)
         self.fired: dict[str, int] = {}
 
+    @classmethod
+    def build(cls, config: BotConfig, table=None, **kw) -> "Bot":
+        """Construct the source the config asks for."""
+        if config.source == "screen":
+            if not config.probes:
+                raise SystemExit("source=screen icin config'te 'probes' gerekir")
+            src: StateSource = ScreenSource(config.probes, backend=config.backend)
+        elif config.source == "memory":
+            if table is None or not table.entries:
+                raise SystemExit(
+                    "source=memory icin offset tablosu gerekir - once "
+                    "'m3 pointer --name ...' calistirin"
+                )
+            src = MemorySource(proc.resolve_pid(config.process), table)
+        else:
+            raise SystemExit(f"bilinmeyen source '{config.source}'")
+        return cls(config, src, **kw)
+
     # -- state -------------------------------------------------------------
     def snapshot(self) -> dict[str, Any]:
-        """Current value of every table entry, plus derived expressions."""
-        names: dict[str, Any] = {}
-        for name in self.table.entries:
-            v = self.live.read(name)
-            names[name] = v if v is not None else 0
+        """Current value of every source reading, plus derived expressions."""
+        names: dict[str, Any] = dict(self.source.values())
         names["_t"] = time.time()
         for key, formula in self.config.derived.items():
             try:
@@ -146,7 +162,7 @@ class Bot:
                 value = expr.evaluate(value, names)
             self._log(f"write {name} = {value}")
             if not self.dry_run:
-                self.live.write(name, value)
+                self.source.write(name, value)
         elif kind == "log":
             print(action.get("message", "").format(**names))
         else:
@@ -159,7 +175,7 @@ class Bot:
     # -- loop --------------------------------------------------------------
     def validate(self) -> list[str]:
         """Report rules referencing values the offset table cannot supply."""
-        known = set(self.table.entries) | set(self.config.derived) | {"_t"}
+        known = set(self.source.names()) | set(self.config.derived) | {"_t"}
         problems = []
         for rule in self.config.rules:
             missing = expr.referenced_names(rule.when) - known
@@ -195,10 +211,11 @@ class Bot:
             raise SystemExit("config hatalari:\n  " + "\n  ".join(problems))
         started = time.time()
         mode = "DRY-RUN" if self.dry_run else f"backend={self.input.name}"
-        print(f"bot basladi: pid {self.pid} ({self.config.process}) [{mode}]")
+        print(f"bot basladi: {self.config.process} "
+              f"[kaynak={self.source.name}, {mode}]")
         try:
             while True:
-                if not self.mem.alive:
+                if not self.source.alive:
                     print("oyun sureci kapandi, duruluyor")
                     break
                 if self.config.stop_after and time.time() - started > self.config.stop_after:
@@ -211,7 +228,7 @@ class Bot:
         finally:
             if self.input:
                 self.input.close()
-            self.mem.close()
+            self.source.close()
             if self.fired:
                 print("tetiklenen kurallar: " + ", ".join(
                     f"{k}x{v}" for k, v in sorted(self.fired.items())))

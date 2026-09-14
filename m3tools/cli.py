@@ -283,10 +283,35 @@ def cmd_farm(args) -> None:
             "Ornegi kopyalayin: cp examples/farm.example.json " + cfg_path
         )
     config = BotConfig.load(cfg_path)
+    if args.source:
+        config.source = args.source
     table = OffsetTable.load(args.table or TABLE_FILE)
-    if not table.entries:
-        raise SystemExit("offset tablosu bos - once 'm3 pointer --name ...' calistirin")
-    Bot(config, table, dry_run=args.dry_run, verbose=args.verbose).run()
+    Bot.build(config, table, dry_run=args.dry_run, verbose=args.verbose).run()
+
+
+def cmd_probe(args) -> None:
+    """Read a config's probes against the live screen, to calibrate them."""
+    from m3tools.farm.bot import BotConfig, default_config_path
+    from m3tools.screen import load_probes
+    from m3tools.screen.capture import Screen
+    from m3tools.screen.shell import auto_shell
+
+    cfg_path = args.config or default_config_path()
+    if not os.path.exists(cfg_path):
+        raise SystemExit(f"config yok: {cfg_path}")
+    config = BotConfig.load(cfg_path)
+    if not config.probes:
+        raise SystemExit("config'te 'probes' bolumu yok")
+    probes = load_probes(config.probes)
+    screen = Screen(auto_shell(config.backend))
+    while True:
+        frame = screen.capture()
+        line = "  ".join(f"{n}={p.read(frame):7.2f}" for n, p in probes.items())
+        print(f"\r{frame}  {line}   ", end="", flush=True)
+        if not args.watch:
+            print()
+            return
+        time.sleep(args.interval)
 
 
 def cmd_shot(args) -> None:
@@ -417,7 +442,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("-n", "--dry-run", action="store_true",
                    help="dokunma gonderme, sadece ne yapacagini yaz")
     s.add_argument("-v", "--verbose", action="store_true")
+    s.add_argument("--source", choices=["memory", "screen"],
+                   help="config'teki kaynagi gecersiz kil")
     s.set_defaults(func=cmd_farm)
+
+    s = sub.add_parser("probe", help="ekran problarini canli oku (kalibrasyon)")
+    s.add_argument("-c", "--config")
+    s.add_argument("-w", "--watch", action="store_true")
+    s.add_argument("-i", "--interval", type=float, default=0.5)
+    s.set_defaults(func=cmd_probe)
 
     s = sub.add_parser("doctor", help="cihaz/izin durumunu kontrol et")
     s.add_argument("-p", "--pid")

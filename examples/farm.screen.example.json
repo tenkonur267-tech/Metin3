@@ -1,0 +1,98 @@
+{
+  "_comment": "Ekran tabanli farm - root gerekmez. Once 'm3 shot' ile ekran goruntusu alip koordinatlari ve renkleri buraya yazin, sonra 'm3 probe -w' ile dogrulayin.",
+  "process": "com.hardmobile.client",
+  "source": "screen",
+  "poll_interval": 0.4,
+  "backend": "auto",
+  "stop_after": 0,
+
+  "probes": {
+    "hp_pct": {
+      "type": "bar",
+      "from": [150, 60],
+      "to": [520, 60],
+      "color": [200, 40, 40],
+      "tolerance": 70,
+      "gap": 4
+    },
+    "mp_pct": {
+      "type": "bar",
+      "from": [150, 92],
+      "to": [520, 92],
+      "color": [50, 90, 210],
+      "tolerance": 70
+    },
+    "target_hp_pct": {
+      "type": "bar",
+      "from": [400, 150],
+      "to": [680, 150],
+      "color": [190, 60, 50],
+      "tolerance": 70
+    },
+    "dead_overlay": {
+      "type": "color",
+      "at": [540, 1200],
+      "color": [240, 240, 240],
+      "tolerance": 40
+    },
+    "screen_dim": {
+      "type": "bright",
+      "from": [300, 800],
+      "to": [780, 1100],
+      "step": 8
+    }
+  },
+
+  "points": {
+    "attack":  [980, 1650],
+    "potion":  [120, 1720],
+    "mp_pot":  [260, 1720],
+    "pickup":  [980, 1450],
+    "revive":  [540, 1200]
+  },
+
+  "rules": [
+    {
+      "name": "revive",
+      "priority": 100,
+      "when": "dead_overlay > 0",
+      "cooldown": 10,
+      "do": [
+        {"type": "log", "message": "olduk, revive"},
+        {"type": "tap", "at": "revive"},
+        {"type": "wait", "seconds": 3}
+      ]
+    },
+    {
+      "name": "heal",
+      "priority": 90,
+      "when": "hp_pct > 0 and hp_pct < 45",
+      "cooldown": 3,
+      "do": [{"type": "tap", "at": "potion"}]
+    },
+    {
+      "name": "mana",
+      "priority": 80,
+      "when": "mp_pct < 30",
+      "cooldown": 5,
+      "do": [{"type": "tap", "at": "mp_pot"}]
+    },
+    {
+      "name": "attack",
+      "priority": 10,
+      "when": "hp_pct >= 45 and target_hp_pct > 2",
+      "cooldown": 0.4,
+      "do": [{"type": "tap", "at": "attack", "duration": 0.08}]
+    },
+    {
+      "name": "find_target",
+      "priority": 5,
+      "when": "target_hp_pct <= 2",
+      "cooldown": 2,
+      "do": [
+        {"type": "tap", "at": "pickup"},
+        {"type": "swipe", "from": [540, 1200], "to": [540, 900], "duration": 0.4}
+      ]
+    }
+  ]
+}

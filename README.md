@@ -111,6 +111,12 @@ Aynısını `hp_max`, `mp`, `mp_max`, `gold`, `x`, `y` (genelde `f32`),
 
 ### 3. Farm botu
 
+Bot durumu iki kaynaktan okuyabilir ve kurallar ikisinde de aynıdır:
+
+* `"source": "memory"` — çözülmüş pointer zincirlerinden kesin değerler (root gerekir)
+* `"source": "screen"` — piksel problarından yüzdeler (root gerekmez, bkz.
+  [docs/EKRAN-BOTU.md](docs/EKRAN-BOTU.md))
+
 ```bash
 cp examples/farm.example.json ~/.m3/farm.json
 nano ~/.m3/farm.json          # points{} içindeki koordinatları kendi ekranınıza göre düzeltin
@@ -136,7 +142,9 @@ göster" açın, butona basın, sol üstteki X/Y değerlerini `points`'e yazın.
 | `m3 pmap -p PID` | Pointer haritasını kurar ve saklar |
 | `m3 pointer ADRES --name AD` | Kalıcı zinciri bulur, doğrular, tabloya yazar |
 | `m3 table [-p PID]` | Offset tablosu (pid verilirse canlı değerlerle) |
-| `m3 farm [-c config] [--dry-run]` | Kural motorunu çalıştırır |
+| `m3 shot [-o dosya] [--at X,Y]` | Ekran görüntüsü alır, istenen noktaların rengini yazar |
+| `m3 probe [-w]` | Ekran problarını canlı okur (kalibrasyon) |
+| `m3 farm [-c config] [--dry-run] [--source memory\|screen]` | Kural motorunu çalıştırır |
 
 Desteklenen tipler: `i8 u8 i16 u16 i32 u32 i64 u64 f32 f64`.
 
