@@ -17,6 +17,11 @@ edilmis bir uygulama yok.
 | `frida/il2cpp_dump.js` | Calisan bir IL2CPP surecinde `il2cpp_*` runtime API'si uzerinden sinif / alan / metod offsetlerini cikarir. Tahmin yok - motor degerleri birebir verir. |
 | `tools/dump_offsets.py` | Yukaridaki script'i Frida ile surecte calistirip sonucu JSON'a yazan surucu. |
 
+## Telefondan analiz
+
+Oyun telefondaysa ve PC yoksa: depoyu Termux'a klonlayip analizi cihazda
+calistir, ciktiyi push et. Adim adim: [`docs/01-veri-aktarimi.md`](docs/01-veri-aktarimi.md)
+
 ## Kullanim
 
 Statik analiz (cihaz gerekmez):
