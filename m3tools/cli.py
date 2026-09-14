@@ -289,6 +289,23 @@ def cmd_farm(args) -> None:
     Bot(config, table, dry_run=args.dry_run, verbose=args.verbose).run()
 
 
+def cmd_shot(args) -> None:
+    """Grab a frame; the PNG is how tap coordinates get picked."""
+    from m3tools.screen import Screen
+    from m3tools.screen.shell import auto_shell
+
+    screen = Screen(auto_shell(args.backend))
+    frame = screen.capture()
+    out = args.out or os.path.join(STATE_DIR, "shot.png")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    frame.save_png(out)
+    print(f"{frame} -> {out}  (backend={screen.shell.name})")
+    if args.at:
+        for spec in args.at:
+            x, y = (int(v) for v in spec.split(",", 1))
+            print(f"  ({x},{y}) = rgb{frame.rgb(x, y)}")
+
+
 def cmd_doctor(args) -> None:
     """Explain what this device can and cannot do before anything else fails."""
     from m3tools.farm.input import find_touch_device
@@ -386,6 +403,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--pick", type=int, default=0, help="kaydedilecek zincirin indeksi")
     s.add_argument("--note")
     s.set_defaults(func=cmd_pointer)
+
+    s = sub.add_parser("shot", help="ekran goruntusu al (koordinat kalibrasyonu)")
+    s.add_argument("-o", "--out")
+    s.add_argument("--backend", default="auto", choices=["auto", "su", "adb", "local"])
+    s.add_argument("--at", action="append", metavar="X,Y",
+                   help="bu noktanin rengini de yaz")
+    s.set_defaults(func=cmd_shot)
 
     s = sub.add_parser("farm", help="farm dongusunu calistir")
     s.add_argument("-c", "--config")
