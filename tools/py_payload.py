@@ -48,6 +48,10 @@ STDLIB_TOPLEVEL = {
     "tempfile", "subprocess", "signal", "contextlib", "inspect", "dis",
     "opcode", "typing", "string", "textwrap", "argparse", "gettext",
     "encodings", "sysconfig", "platform",
+    # Python 2.7 stdlib isimleri - gomulu yorumlayici 2.7 olabilir.
+    "UserDict", "UserList", "UserString", "copy_reg", "ntpath",
+    "StringIO", "cStringIO", "urlparse", "httplib", "Queue",
+    "ConfigParser", "cPickle", "sets", "string", "commands",
 }
 
 # Metin2 istemcisinin bilinen Python modulleri - varsa oyunun kaynagi acikta.
