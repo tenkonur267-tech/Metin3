@@ -1,0 +1,66 @@
+{
+  "_comment": "m3 farm --config examples/farm.example.json --dry-run ile once kuru calistirin.",
+  "process": "hardmobile",
+  "poll_interval": 0.25,
+  "backend": "auto",
+  "stop_after": 0,
+
+  "points": {
+    "attack":  [980, 1650],
+    "potion":  [120, 1720],
+    "mp_pot":  [260, 1720],
+    "pickup":  [980, 1450],
+    "revive":  [540, 1200],
+    "move_up": [200, 1500]
+  },
+
+  "derived": {
+    "hp_pct": "100.0 * hp / max(hp_max, 1)",
+    "mp_pct": "100.0 * mp / max(mp_max, 1)"
+  },
+
+  "rules": [
+    {
+      "name": "revive",
+      "priority": 100,
+      "when": "hp <= 0",
+      "cooldown": 10,
+      "do": [
+        {"type": "log", "message": "olduk, revive"},
+        {"type": "tap", "at": "revive"},
+        {"type": "wait", "seconds": 3}
+      ]
+    },
+    {
+      "name": "heal",
+      "priority": 90,
+      "when": "hp > 0 and hp_pct < 45",
+      "cooldown": 3,
+      "do": [{"type": "tap", "at": "potion"}]
+    },
+    {
+      "name": "mana",
+      "priority": 80,
+      "when": "mp_pct < 30",
+      "cooldown": 5,
+      "do": [{"type": "tap", "at": "mp_pot"}]
+    },
+    {
+      "name": "attack",
+      "priority": 10,
+      "when": "hp_pct > 45 and target_hp > 0",
+      "cooldown": 0.4,
+      "do": [{"type": "tap", "at": "attack", "duration": 0.08}]
+    },
+    {
+      "name": "find_target",
+      "priority": 5,
+      "when": "target_hp <= 0",
+      "cooldown": 2,
+      "do": [
+        {"type": "tap", "at": "pickup"},
+        {"type": "swipe", "from": [540, 1200], "to": [540, 900], "duration": 0.4}
+      ]
+    }
+  ]
+}
