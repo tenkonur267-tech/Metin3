@@ -1,0 +1,16 @@
+# analiz ciktilari (yeniden uretilebilir)
+out/
+
+# oyun dosyalari - depoya girmemeli (buyuk + telif)
+input/
+*.apk
+*.apks
+*.so
+*.dat
+*.dll
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
