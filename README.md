@@ -29,6 +29,16 @@ sabittir. `m3 pointer` tam olarak bu zinciri bulur ve doğrular.
 | PC + root'lu emülatör | `m3 scan -D adb -p ...` | VS Code'dan, bkz. [docs/EMULATOR.md](docs/EMULATOR.md) |
 | Root'suz telefon | `m3 farm --source screen` | Bellek yok, piksel probları |
 
+Emülatörde oyun açılmıyorsa sebebi tespit edin:
+
+```bash
+python3 tools/why_blocked.py --package com.hardmobile.client
+```
+
+Root tespiti mi, emülatör tespiti mi, lisans kontrolü mü, yoksa ARM çeviri
+çökmesi mi olduğunu söyler ve her birine karşılık gelen çözümü verir — bkz.
+[docs/ROOT-GIZLEME.md](docs/ROOT-GIZLEME.md).
+
 ## Gereksinimler
 
 | Ne | Neden | Alternatif |
