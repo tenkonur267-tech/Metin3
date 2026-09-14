@@ -30,6 +30,9 @@ class Scan:
     process: str
     type_name: str
     align: int = 4
+    # Where the target lives: "local" or "adb". A saved scan is worthless
+    # against a different device, so it travels with the candidates.
+    device: str = "local"
     filters: ScanFilters = field(default_factory=ScanFilters)
     # addr -> value as of the last scan
     candidates: dict[int, Any] = field(default_factory=dict)
@@ -49,7 +52,7 @@ class Scan:
         """
         vt = self.vtype
         regions = proc.scannable_regions(
-            proc.read_maps(self.pid),
+            mem.read_maps(),
             heap=self.filters.heap,
             stack=self.filters.stack,
             anon=self.filters.anon,
@@ -114,7 +117,8 @@ class Scan:
             start = addrs[i]
             j = i
             # Grow the batch while the span stays under 64 KiB.
-            while j + 1 < n and addrs[j + 1] - start < 65536:
+            span_limit = getattr(mem, "batch_span", 65536)
+            while j + 1 < n and addrs[j + 1] - start < span_limit:
                 j += 1
             span = addrs[j] - start + vt.size
             buf = mem.try_read(start, span)
@@ -131,8 +135,8 @@ class Scan:
             i = j + 1
 
     # -- reporting ---------------------------------------------------------
-    def describe(self, limit: int = 20) -> list[str]:
-        regions = proc.read_maps(self.pid)
+    def describe(self, regions, limit: int = 20) -> list[str]:
+        """Render candidates against a maps snapshot the caller already has."""
         lines = []
         for addr in sorted(self.candidates)[:limit]:
             where = proc.module_for_address(regions, addr)
@@ -145,6 +149,7 @@ class Scan:
         return {
             "pid": self.pid,
             "process": self.process,
+            "device": self.device,
             "type": self.type_name,
             "align": self.align,
             "filters": vars(self.filters),
@@ -160,6 +165,7 @@ class Scan:
             process=d.get("process", ""),
             type_name=d["type"],
             align=d.get("align", 4),
+            device=d.get("device", "local"),
             filters=ScanFilters(**d.get("filters", {})),
         )
         s.history = d.get("history", [])

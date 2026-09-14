@@ -13,7 +13,8 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import os
-from typing import Sequence
+from . import proc
+from .base import MemoryHandle
 
 
 class MemoryError_(RuntimeError):
@@ -42,8 +43,8 @@ def _load_libc():
 _LIBC = _load_libc()
 
 
-class ProcessMemory:
-    """Handle on a target process's address space."""
+class ProcessMemory(MemoryHandle):
+    """Handle on a process in this same kernel namespace."""
 
     def __init__(self, pid: int, prefer_syscall: bool = True):
         self.pid = pid
@@ -66,15 +67,12 @@ class ProcessMemory:
             os.close(self._fd)
             self._fd = None
 
-    def __enter__(self) -> "ProcessMemory":
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.close()
-
     @property
     def alive(self) -> bool:
         return os.path.isdir(f"/proc/{self.pid}")
+
+    def read_maps(self):
+        return proc.read_maps(self.pid)
 
     # -- reading -----------------------------------------------------------
     def read(self, addr: int, size: int) -> bytes:
@@ -106,19 +104,6 @@ class ProcessMemory:
             raise MemoryError_(f"0x{addr:x} kismi okuma ({len(data)}/{size})")
         return data
 
-    def try_read(self, addr: int, size: int) -> bytes | None:
-        """Read, returning None instead of raising on unreadable memory."""
-        try:
-            return self.read(addr, size)
-        except (MemoryError_, OSError):
-            return None
-
-    def read_ptr(self, addr: int, ptr_size: int = 8) -> int | None:
-        raw = self.try_read(addr, ptr_size)
-        if raw is None:
-            return None
-        return int.from_bytes(raw, "little")
-
     # -- writing -----------------------------------------------------------
     def write(self, addr: int, data: bytes) -> None:
         if not data:
@@ -140,34 +125,6 @@ class ProcessMemory:
             raise MemoryError_(f"0x{addr:x} yazilamadi: {e}") from e
         if written != len(data):
             raise MemoryError_(f"0x{addr:x} kismi yazma ({written}/{len(data)})")
-
-    # -- bulk --------------------------------------------------------------
-    def read_chunks(self, addr: int, total: int, chunk: int = 4 << 20):
-        """Yield (offset, bytes) over a large range, skipping unreadable holes.
-
-        A single region can contain pages that are mapped but not resident in a
-        way the kernel will hand over; instead of aborting the whole scan we
-        drop that chunk and continue.
-        """
-        done = 0
-        while done < total:
-            n = min(chunk, total - done)
-            data = self.try_read(addr + done, n)
-            if data is None:
-                if n <= 4096:
-                    done += n
-                    continue
-                # Binary-search around the bad page: halve and retry.
-                half = (n // 2) & ~0xFFF or 4096
-                data = self.try_read(addr + done, half)
-                if data is None:
-                    done += 4096
-                    continue
-                yield done, data
-                done += half
-                continue
-            yield done, data
-            done += n
 
 
 def can_ptrace(pid: int) -> tuple[bool, str]:

@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..mem import proc
+from ..mem import device as devmod
 from . import expr
 from .input import InputBackend, auto_backend
 from .sources import MemorySource, ScreenSource, StateSource
@@ -50,6 +50,8 @@ class BotConfig:
     # "memory" resolves pointer chains; "screen" probes pixels.
     source: str = "memory"
     probes: dict[str, dict] = field(default_factory=dict)
+    # "local" or "adb" - where the game process lives.
+    device: str = "local"
     rules: list[Rule] = field(default_factory=list)
     # Derived values the rules can reference, e.g. "hp_pct": "100*hp/hp_max"
     derived: dict[str, str] = field(default_factory=dict)
@@ -67,6 +69,7 @@ class BotConfig:
             poll_interval=float(d.get("poll_interval", 0.25)),
             source=d.get("source", "memory"),
             probes=d.get("probes", {}),
+            device=d.get("device", "local"),
             rules=[Rule.from_json(r) for r in d.get("rules", [])],
             derived=d.get("derived", {}),
             points={k: list(v) for k, v in d.get("points", {}).items()},
@@ -106,7 +109,9 @@ class Bot:
                     "source=memory icin offset tablosu gerekir - once "
                     "'m3 pointer --name ...' calistirin"
                 )
-            src = MemorySource(proc.resolve_pid(config.process), table)
+            dev = devmod.open_device(config.device)
+            src = MemorySource(devmod.resolve_pid(dev, config.process), table,
+                               device=dev)
         else:
             raise SystemExit(f"bilinmeyen source '{config.source}'")
         return cls(config, src, **kw)

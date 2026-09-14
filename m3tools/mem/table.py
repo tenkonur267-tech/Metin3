@@ -72,12 +72,12 @@ class ResolvedTable:
     def __init__(self, table: OffsetTable, mem: ProcessMemory):
         self.table = table
         self.mem = mem
-        self._regions = proc.read_maps(mem.pid)
+        self._regions = mem.read_maps()
         self._addrs: dict[str, int] = {}
 
     def refresh_layout(self) -> None:
         """Re-read maps; needed after the game loads or unloads a library."""
-        self._regions = proc.read_maps(self.mem.pid)
+        self._regions = self.mem.read_maps()
         self._addrs.clear()
 
     def address(self, name: str, cache: bool = True) -> int | None:

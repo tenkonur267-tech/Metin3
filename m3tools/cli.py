@@ -22,6 +22,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from m3tools.mem import device as devmod
 from m3tools.mem import proc, values
 from m3tools.mem.pointers import Chain, PointerMap, find_chains, verify_chains
 from m3tools.mem.rw import ProcessMemory, can_ptrace
@@ -34,11 +35,15 @@ PMAP_FILE = os.path.join(STATE_DIR, "pointermap.bin")
 TABLE_FILE = os.path.join(STATE_DIR, "offsets.json")
 
 
-def _attach(pid: int) -> ProcessMemory:
-    ok, why = can_ptrace(pid)
-    if not ok:
-        raise SystemExit(f"pid {pid} okunamiyor: {why}")
-    return ProcessMemory(pid)
+def _device(args):
+    return devmod.open_device(getattr(args, "device", "local"),
+                              getattr(args, "serial", None))
+
+
+def _target(args):
+    """Resolve the device and the pid the command should act on."""
+    dev = _device(args)
+    return dev, devmod.resolve_pid(dev, args.pid)
 
 
 def _load_scan() -> Scan:
@@ -65,19 +70,24 @@ def _human(n: int) -> str:
 
 
 def cmd_ps(args) -> None:
-    hits = proc.find_pids(args.pattern or "")
+    dev = _device(args)
+    needle = (args.pattern or "").lower()
+    hits = [(p, n) for p, n in dev.list_processes() if needle in n.lower()]
     if not hits:
         print("eslesen surec yok")
         return
     for pid, name in hits:
-        ok, why = can_ptrace(pid)
-        mark = "ok" if ok else why.split(" - ")[0]
+        if dev.name == "local":
+            ok, why = can_ptrace(pid)
+            mark = "ok" if ok else why.split(" - ")[0]
+        else:
+            mark = ""
         print(f"{pid:>7}  {name:<50} {mark}")
 
 
 def cmd_maps(args) -> None:
-    pid = proc.resolve_pid(args.pid)
-    regions = proc.read_maps(pid)
+    dev, pid = _target(args)
+    regions = dev.read_maps(pid)
     if args.modules:
         for path, base in sorted(proc.modules(regions).items(), key=lambda kv: kv[1]):
             print(f"0x{base:012x}  {path}")
@@ -90,7 +100,7 @@ def cmd_maps(args) -> None:
 
 
 def cmd_scan(args) -> None:
-    pid = proc.resolve_pid(args.pid)
+    dev, pid = _target(args)
     vt = values.get(args.type)
     filters = ScanFilters(
         heap=not args.no_heap,
@@ -98,9 +108,10 @@ def cmd_scan(args) -> None:
         anon=not args.no_anon,
         libs=not args.no_libs,
     )
+    names = dict(dev.list_processes())
     scan = Scan(
         pid=pid,
-        process=proc.process_name(pid),
+        process=names.get(pid, ""),
         type_name=args.type,
         align=args.align or vt.size,
         filters=filters,
@@ -109,12 +120,14 @@ def cmd_scan(args) -> None:
         raise SystemExit("-v DEGER verin ya da --unknown kullanin")
     wanted = None if args.unknown else vt.parse(args.value)
     t0 = time.time()
-    with _attach(pid) as mem:
+    with dev.open_memory(pid) as mem:
         n = scan.first(mem, wanted)
+        regions = mem.read_maps()
+    scan.device = dev.name
     scan.save(SCAN_FILE)
     print(f"{n} aday ({time.time() - t0:.1f}s)")
     if n and n <= args.show:
-        print("\n".join(scan.describe(args.show)))
+        print("\n".join(scan.describe(regions, args.show)))
     elif n:
         print("Oyunda degeri degistirip 'm3 next' ile daraltin.")
 
@@ -132,54 +145,61 @@ def cmd_next(args) -> None:
         if op is None:
             raise SystemExit("-v DEGER veya --op {changed,increased,...} verin")
     t0 = time.time()
-    with _attach(scan.pid) as mem:
+    dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+    with dev.open_memory(scan.pid) as mem:
         n = scan.refine(mem, op, arg)
+        regions = mem.read_maps()
     scan.save(SCAN_FILE)
     print(f"{n} aday kaldi ({time.time() - t0:.1f}s)")
     if n and n <= args.show:
-        print("\n".join(scan.describe(args.show)))
+        print("\n".join(scan.describe(regions, args.show)))
 
 
 def cmd_list(args) -> None:
     scan = _load_scan()
-    with _attach(scan.pid) as mem:
+    dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+    with dev.open_memory(scan.pid) as mem:
         scan.refresh(mem)
-    print(f"pid {scan.pid} ({scan.process}) tip {scan.type_name}")
+        regions = mem.read_maps()
+    print(f"pid {scan.pid} ({scan.process}) tip {scan.type_name} [{scan.device}]")
     print("gecmis: " + " -> ".join(scan.history))
     print(f"{len(scan.candidates)} aday")
-    print("\n".join(scan.describe(args.show)))
+    print("\n".join(scan.describe(regions, args.show)))
 
 
 def cmd_watch(args) -> None:
     """Live-tail an address (or the surviving candidates) to sanity-check it."""
     if args.address:
-        pid = proc.resolve_pid(args.pid)
+        dev, pid = _target(args)
         vt = values.get(args.type)
         addr = int(args.address, 0)
-        with _attach(pid) as mem:
+        with dev.open_memory(pid) as mem:
             while True:
                 raw = mem.try_read(addr, vt.size)
                 shown = vt.unpack(raw) if raw else "<okunamadi>"
                 print(f"\r0x{addr:x} = {shown!r:<24}", end="", flush=True)
                 time.sleep(args.interval)
     scan = _load_scan()
-    with _attach(scan.pid) as mem:
+    dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+    with dev.open_memory(scan.pid) as mem:
+        regions = mem.read_maps()
         while True:
             scan.refresh(mem)
-            print("\033[2J\033[H" + "\n".join(scan.describe(args.show)), flush=True)
+            print("\033[2J\033[H" + "\n".join(scan.describe(regions, args.show)),
+                  flush=True)
             time.sleep(args.interval)
 
 
 def cmd_write(args) -> None:
-    pid = proc.resolve_pid(args.pid)
+    dev, pid = _target(args)
     vt = values.get(args.type)
-    with _attach(pid) as mem:
+    with dev.open_memory(pid) as mem:
         mem.write(int(args.address, 0), vt.pack(vt.parse(args.value)))
     print("yazildi")
 
 
 def cmd_pmap(args) -> None:
-    pid = proc.resolve_pid(args.pid)
+    dev, pid = _target(args)
     t0 = time.time()
     last = [0.0]
 
@@ -190,14 +210,19 @@ def cmd_pmap(args) -> None:
             pct = 100.0 * seen / total if total else 100.0
             print(f"\r  {pct:5.1f}%  {_human(seen)}/{_human(total)}", end="", flush=True)
 
-    with _attach(pid) as mem:
+    with dev.open_memory(pid) as mem:
         pm = PointerMap.build(mem, include_stack=args.stack, progress=progress)
     pm.save(PMAP_FILE)
     print(f"\r{len(pm)} pointer kaydedildi ({time.time() - t0:.1f}s) -> {PMAP_FILE}")
 
 
 def cmd_pointer(args) -> None:
-    pid = proc.resolve_pid(args.pid) if args.pid else _load_scan().pid
+    if args.pid:
+        dev, pid = _target(args)
+    else:
+        scan = _load_scan()
+        dev = devmod.open_device(scan.device, getattr(args, "serial", None))
+        pid = scan.pid
     target = int(args.address, 0)
 
     if os.path.exists(PMAP_FILE) and not args.rebuild:
@@ -208,7 +233,7 @@ def cmd_pointer(args) -> None:
     else:
         pm = None
     if pm is None:
-        with _attach(pid) as mem:
+        with dev.open_memory(pid) as mem:
             pm = PointerMap.build(mem)
         pm.save(PMAP_FILE)
     print(f"pointer haritasi: {len(pm)} giris")
@@ -227,7 +252,7 @@ def cmd_pointer(args) -> None:
         )
         return
 
-    with _attach(pid) as mem:
+    with dev.open_memory(pid) as mem:
         good = verify_chains(mem, chains, target)
     print(f"{len(chains)} aday zincir, {len(good)} tanesi su an dogruluyor:\n")
     for i, c in enumerate(good[:args.max_results]):
@@ -238,7 +263,7 @@ def cmd_pointer(args) -> None:
             raise SystemExit("dogrulanan zincir yok, tabloya eklenmedi")
         chosen = good[args.pick]
         table = OffsetTable.load(TABLE_FILE)
-        table.process = proc.process_name(pid)
+        table.process = dict(dev.list_processes()).get(pid, "")
         table.put(Entry(args.name, args.type, chosen, args.note or ""))
         table.save(TABLE_FILE)
         print(f"\n'{args.name}' tabloya eklendi -> {TABLE_FILE}")
@@ -257,8 +282,8 @@ def cmd_table(args) -> None:
     print(f"surec: {table.process}\n")
     live = None
     if args.pid:
-        mem = _attach(proc.resolve_pid(args.pid))
-        live = ResolvedTable(table, mem)
+        dev, pid = _target(args)
+        live = ResolvedTable(table, dev.open_memory(pid))
     for name, e in table.entries.items():
         line = f"{name:<16} {e.type:<5} {e.chain}"
         if live is not None:
@@ -365,19 +390,26 @@ def cmd_doctor(args) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="m3", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Shared flags live on a parent parser so they can be written after the
+    # subcommand, where they read naturally: `m3 scan -D adb -p ...`.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("-D", "--device", default="local", choices=["local", "adb"],
+                        help="hedefin nerede oldugu (varsayilan: local)")
+    common.add_argument("--serial", help="birden fazla adb cihazi varsa seri no")
+
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("ps", help="surecleri listele")
+    s = sub.add_parser("ps", parents=[common], help="surecleri listele")
     s.add_argument("pattern", nargs="?", default="")
     s.set_defaults(func=cmd_ps)
 
-    s = sub.add_parser("maps", help="bellek haritasi / yuklu moduller")
+    s = sub.add_parser("maps", parents=[common], help="bellek haritasi / yuklu moduller")
     s.add_argument("-p", "--pid", required=True)
     s.add_argument("--modules", action="store_true", help="modul yukleme adresleri")
     s.add_argument("--all", action="store_true", help="filtrelenmemis tum bolgeler")
     s.set_defaults(func=cmd_maps)
 
-    s = sub.add_parser("scan", help="ilk tarama")
+    s = sub.add_parser("scan", parents=[common], help="ilk tarama")
     s.add_argument("-p", "--pid", required=True)
     s.add_argument("-t", "--type", default="i32", choices=list(values.TYPES))
     s.add_argument("-v", "--value")
@@ -390,18 +422,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--show", type=int, default=20)
     s.set_defaults(func=cmd_scan)
 
-    s = sub.add_parser("next", help="taramayi daralt")
+    s = sub.add_parser("next", parents=[common], help="taramayi daralt")
     s.add_argument("-v", "--value")
     s.add_argument("--between", help="lo,hi araligi")
     s.add_argument("--op", choices=["changed", "unchanged", "increased", "decreased", "ne", "gt", "lt"])
     s.add_argument("--show", type=int, default=20)
     s.set_defaults(func=cmd_next)
 
-    s = sub.add_parser("list", help="kalan adaylari goster")
+    s = sub.add_parser("list", parents=[common], help="kalan adaylari goster")
     s.add_argument("--show", type=int, default=40)
     s.set_defaults(func=cmd_list)
 
-    s = sub.add_parser("watch", help="adresi/adaylari canli izle")
+    s = sub.add_parser("watch", parents=[common], help="adresi/adaylari canli izle")
     s.add_argument("-p", "--pid")
     s.add_argument("-a", "--address")
     s.add_argument("-t", "--type", default="i32", choices=list(values.TYPES))
@@ -409,19 +441,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--show", type=int, default=20)
     s.set_defaults(func=cmd_watch)
 
-    s = sub.add_parser("write", help="adrese deger yaz")
+    s = sub.add_parser("write", parents=[common], help="adrese deger yaz")
     s.add_argument("-p", "--pid", required=True)
     s.add_argument("-a", "--address", required=True)
     s.add_argument("-t", "--type", default="i32", choices=list(values.TYPES))
     s.add_argument("-v", "--value", required=True)
     s.set_defaults(func=cmd_write)
 
-    s = sub.add_parser("pmap", help="pointer haritasini kur ve kaydet")
+    s = sub.add_parser("pmap", parents=[common], help="pointer haritasini kur ve kaydet")
     s.add_argument("-p", "--pid", required=True)
     s.add_argument("--stack", action="store_true")
     s.set_defaults(func=cmd_pmap)
 
-    s = sub.add_parser("pointer", help="adres icin kalici pointer zinciri bul")
+    s = sub.add_parser("pointer", parents=[common], help="adres icin kalici pointer zinciri bul")
     s.add_argument("address")
     s.add_argument("-p", "--pid")
     s.add_argument("--depth", type=int, default=5)
@@ -434,7 +466,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--note")
     s.set_defaults(func=cmd_pointer)
 
-    s = sub.add_parser("shot", help="ekran goruntusu al (koordinat kalibrasyonu)")
+    s = sub.add_parser("shot", parents=[common], help="ekran goruntusu al (koordinat kalibrasyonu)")
     s.add_argument("-o", "--out")
     s.add_argument("--backend", default="auto",
                    choices=["auto", "su", "rish", "adb", "local"])
@@ -442,7 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="bu noktanin rengini de yaz")
     s.set_defaults(func=cmd_shot)
 
-    s = sub.add_parser("farm", help="farm dongusunu calistir")
+    s = sub.add_parser("farm", parents=[common], help="farm dongusunu calistir")
     s.add_argument("-c", "--config")
     s.add_argument("--table")
     s.add_argument("-n", "--dry-run", action="store_true",
@@ -452,17 +484,17 @@ def build_parser() -> argparse.ArgumentParser:
                    help="config'teki kaynagi gecersiz kil")
     s.set_defaults(func=cmd_farm)
 
-    s = sub.add_parser("probe", help="ekran problarini canli oku (kalibrasyon)")
+    s = sub.add_parser("probe", parents=[common], help="ekran problarini canli oku (kalibrasyon)")
     s.add_argument("-c", "--config")
     s.add_argument("-w", "--watch", action="store_true")
     s.add_argument("-i", "--interval", type=float, default=0.5)
     s.set_defaults(func=cmd_probe)
 
-    s = sub.add_parser("doctor", help="cihaz/izin durumunu kontrol et")
+    s = sub.add_parser("doctor", parents=[common], help="cihaz/izin durumunu kontrol et")
     s.add_argument("-p", "--pid")
     s.set_defaults(func=cmd_doctor)
 
-    s = sub.add_parser("table", help="offset tablosunu goster/duzenle")
+    s = sub.add_parser("table", parents=[common], help="offset tablosunu goster/duzenle")
     s.add_argument("-p", "--pid", help="verilirse degerleri canli coz")
     s.add_argument("--remove")
     s.set_defaults(func=cmd_table)

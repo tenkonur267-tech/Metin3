@@ -54,7 +54,7 @@ class PointerMap:
         include_stack: bool = False,
         progress=None,
     ) -> "PointerMap":
-        regions = proc.read_maps(mem.pid)
+        regions = mem.read_maps()
         pm = cls(pid=mem.pid)
         pm.module_bases = proc.modules(regions)
 
@@ -180,7 +180,7 @@ class Chain:
 
     def resolve(self, mem: ProcessMemory, regions=None) -> int | None:
         """Walk the chain in the live process; None if any hop is unreadable."""
-        regions = regions if regions is not None else proc.read_maps(mem.pid)
+        regions = regions if regions is not None else mem.read_maps()
         base = proc.module_base(regions, os.path.basename(self.module))
         if base is None:
             return None
@@ -244,5 +244,5 @@ def verify_chains(
     expected: int,
 ) -> list[Chain]:
     """Keep only chains that still resolve to `expected` right now."""
-    regions = proc.read_maps(mem.pid)
+    regions = mem.read_maps()
     return [c for c in chains if c.resolve(mem, regions) == expected]

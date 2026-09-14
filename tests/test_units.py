@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import io
+import json
 import os
 import sys
 import tempfile
@@ -174,3 +174,96 @@ class TestScanPersistence(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRemoteParsing(unittest.TestCase):
+    """The adb backend's text parsing, without needing a device."""
+
+    def setUp(self):
+        from m3tools.mem.remote import parse_maps, parse_ps
+        self.parse_maps = parse_maps
+        self.parse_ps = parse_ps
+
+    def test_ps_with_args_column(self):
+        text = (
+            "  PID ARGS\n"
+            "    1 /init second_stage\n"
+            "  402 com.hardmobile.client\n"
+            "  903 com.hardmobile.client:push\n"
+        )
+        got = self.parse_ps(text)
+        self.assertIn((402, "com.hardmobile.client"), got)
+        self.assertIn((903, "com.hardmobile.client:push"), got)
+        self.assertIn((1, "/init second_stage"), got)
+
+    def test_ps_header_is_not_a_process(self):
+        self.assertEqual(self.parse_ps("  PID ARGS\n"), [])
+
+    def test_ps_ignores_unparseable_lines(self):
+        self.assertEqual(self.parse_ps("garbage\n\n   \n"), [])
+
+    def test_maps_parsing_matches_the_local_parser(self):
+        line = ("5584d7b00000-5584d7b40000 rw-p 00100000 fe:01 1234"
+                "   /data/app/lib/arm64/libil2cpp.so")
+        r = self.parse_maps(line)[0]
+        self.assertEqual(r.start, 0x5584D7B00000)
+        self.assertEqual(r.end, 0x5584D7B40000)
+        self.assertTrue(r.writable and r.readable)
+        self.assertEqual(r.file_offset, 0x100000)
+        self.assertTrue(r.path.endswith("libil2cpp.so"))
+
+
+class TestPidResolution(unittest.TestCase):
+    """Picking the right process when an app has helper processes."""
+
+    class FakeDevice:
+        name = "fake"
+
+        def __init__(self, procs):
+            self._procs = procs
+
+        def list_processes(self):
+            return self._procs
+
+    def resolve(self, procs, target):
+        from m3tools.mem.device import resolve_pid
+
+        return resolve_pid(self.FakeDevice(procs), target)
+
+    def test_numeric_pid_passes_through(self):
+        self.assertEqual(self.resolve([], "1234"), 1234)
+
+    def test_single_match(self):
+        self.assertEqual(self.resolve([(402, "com.hardmobile.client")], "hard"), 402)
+
+    def test_helper_processes_do_not_make_it_ambiguous(self):
+        procs = [(402, "com.hardmobile.client"),
+                 (903, "com.hardmobile.client:push"),
+                 (904, "com.hardmobile.client:gl")]
+        self.assertEqual(self.resolve(procs, "hardmobile"), 402)
+
+    def test_genuinely_ambiguous_match_is_an_error(self):
+        procs = [(1, "com.game.one"), (2, "com.game.two")]
+        with self.assertRaises(SystemExit):
+            self.resolve(procs, "com.game")
+
+    def test_no_match_is_an_error(self):
+        with self.assertRaises(SystemExit):
+            self.resolve([(1, "init")], "yok")
+
+
+class TestScanDevicePersistence(unittest.TestCase):
+    def test_device_travels_with_a_saved_scan(self):
+        s = Scan(pid=7, process="game", type_name="i32", device="adb")
+        s.candidates = {0x10: 1}
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "scan.json")
+            s.save(path)
+            self.assertEqual(Scan.load(path).device, "adb")
+
+    def test_device_defaults_to_local_for_older_saves(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "scan.json")
+            with open(path, "w") as fh:
+                json.dump({"pid": 1, "type": "i32", "candidates": {}}, fh)
+            self.assertEqual(Scan.load(path).device, "local")

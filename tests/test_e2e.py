@@ -99,7 +99,8 @@ class TestEndToEnd(unittest.TestCase):
                 scan.refine(mem, "eq", hp)
                 self.assertIn(self.target.hp_addr, scan.candidates)
 
-            self.assertLessEqual(len(scan.candidates), 4, scan.describe())
+            self.assertLessEqual(len(scan.candidates), 4,
+                                 scan.describe(mem.read_maps()))
 
     def test_unknown_value_search(self):
         scan = Scan(pid=self.target.pid, process="target", type_name="i32")

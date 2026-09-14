@@ -26,11 +26,12 @@ class MemorySource:
 
     name = "memory"
 
-    def __init__(self, pid: int, table):
-        from ..mem.rw import ProcessMemory
+    def __init__(self, pid: int, table, device=None):
+        from ..mem.device import LocalDevice
         from ..mem.table import ResolvedTable
 
-        self.mem = ProcessMemory(pid)
+        self.device = device or LocalDevice()
+        self.mem = self.device.open_memory(pid)
         self.table = table
         self.live = ResolvedTable(table, self.mem)
 

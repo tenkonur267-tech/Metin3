@@ -21,6 +21,14 @@ hp = [ [ [libil2cpp.so + 0x1A2B30] + 0x18 ] + 0x40 ] + 0xC
 `libil2cpp.so`'nun yüklenme adresi `/proc/<pid>/maps`'ten okunur, offsetler
 sabittir. `m3 pointer` tam olarak bu zinciri bulur ve doğrular.
 
+## Nerede çalıştırılır
+
+| Ortam | Komut | Not |
+|---|---|---|
+| Root'lu telefon, Termux | `m3 scan -p ...` | Doğrudan `/proc` |
+| PC + root'lu emülatör | `m3 scan -D adb -p ...` | VS Code'dan, bkz. [docs/EMULATOR.md](docs/EMULATOR.md) |
+| Root'suz telefon | `m3 farm --source screen` | Bellek yok, piksel probları |
+
 ## Gereksinimler
 
 | Ne | Neden | Alternatif |
