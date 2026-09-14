@@ -25,12 +25,20 @@ sabittir. `m3 pointer` tam olarak bu zinciri bulur ve doğrular.
 
 | Ne | Neden | Alternatif |
 |---|---|---|
-| **root (`su`)** | Başka bir uid'in `/proc/<pid>/mem` dosyasını okumak için | Yok — Android'de app'ler ayrı uid'de çalışır |
+| **root (`su`)** | Başka bir uid'in `/proc/<pid>/mem` dosyasını okumak için | Yok — ADB ve Shizuku de yetmez, bkz. [docs/ROOTSUZ.md](docs/ROOTSUZ.md) |
 | Termux + `pkg install python` | Araçları çalıştırmak | — |
 | Yazılabilir `/dev/input/eventN` | Hızlı dokunma enjeksiyonu | `su -c input tap` (yavaş), `adb shell` (kablosuz hata ayıklama) |
 
-Root yoksa bellek okuma mümkün değildir; o durumda ekran görüntüsü + piksel
-tabanlı otomasyona geçmek gerekir (bu repoda yok).
+Root yoksa bellek okuma mümkün değildir — bu bir araç eksikliği değil, çekirdek
+seviyesinde bir izin sınırıdır. O durumda ne yapılabileceği
+[docs/ROOTSUZ.md](docs/ROOTSUZ.md) içinde: statik APK analizi (offsetleri
+taramadan çıkarır), ekran tabanlı otomasyon, ve APK'yı yeniden paketleme.
+
+Root'suz ilk adım, motoru tespit etmektir:
+
+```bash
+python3 tools/engine_detect.py input/apk/
+```
 
 Her şeyden önce:
 
