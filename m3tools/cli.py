@@ -341,6 +341,11 @@ def cmd_doctor(args) -> None:
     print(f"su          : {shutil.which('su') or 'yok'}")
     print(f"adb         : {shutil.which('adb') or 'yok'}")
     try:
+        from m3tools.screen.shell import auto_shell
+        print(f"ekran backend: {auto_shell().name}")
+    except Exception as e:
+        print(f"ekran backend: yok ({e})")
+    try:
         with open("/proc/sys/kernel/yama/ptrace_scope") as fh:
             print(f"ptrace_scope: {fh.read().strip()} (0 olmali)")
     except OSError:
@@ -431,7 +436,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("shot", help="ekran goruntusu al (koordinat kalibrasyonu)")
     s.add_argument("-o", "--out")
-    s.add_argument("--backend", default="auto", choices=["auto", "su", "adb", "local"])
+    s.add_argument("--backend", default="auto",
+                   choices=["auto", "su", "rish", "adb", "local"])
     s.add_argument("--at", action="append", metavar="X,Y",
                    help="bu noktanin rengini de yaz")
     s.set_defaults(func=cmd_shot)

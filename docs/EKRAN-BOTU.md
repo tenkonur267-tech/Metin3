@@ -94,3 +94,39 @@ m3 farm -v
   `write` kullanırsanız bot açık bir hatayla durur.
 * Bellek yolu açılırsa (root'lu bir emülatör, VM ya da cihaz) config'de
   `"source": "memory"` yapmak yeterlidir — kurallar aynen çalışır.
+
+## Xiaomi / HyperOS: eşleştirme penceresi kapanıyorsa
+
+Xiaomi'de "Eşleme kodu ile cihaz eşle" penceresinden çıktığınız anda pencere
+kapanır ve kod geçersiz olur. Termux'a geçip komutu yazmak bu yüzden mümkün
+olmaz. İki çözüm:
+
+**Bölünmüş ekran.** Son uygulamalar → Termux kartının simgesine basılı tut →
+Bölünmüş ekran → alt bölmeye Ayarlar. Pencere açık kalır, uygulama
+değiştirmediğiniz için iptal olmaz. Komutu önceden yazıp sadece port ve kodu
+değiştirin:
+
+```bash
+adb pair 192.168.1.198:PORT KOD
+```
+
+**Shizuku.** Eşleştirmeyi kendi içinde, bildirim üzerinden yapar; uygulama
+değiştirme sorunu hiç yaşanmaz. Kurduktan sonra Shizuku uygulamasından `rish`
+dosyalarını Termux'un ana dizinine kopyalayın:
+
+```bash
+chmod +x ~/rish
+export RISH_APPLICATION_ID=com.termux
+~/rish -c id
+```
+
+`uid=2000` görüyorsanız hazırsınız. Araçlar `rish`'i kendiliğinden bulur:
+
+```bash
+m3 doctor          # "ekran backend: rish" yazmali
+m3 shot -o ~/storage/shared/Download/ekran.png
+```
+
+Zorlamak için `--backend rish` verebilirsiniz. rish adb bağlantısı gerektirmez,
+yani telefonu yeniden başlattığınızda `adb connect` uğraşı da olmaz — sadece
+Shizuku'yu yeniden başlatmanız yeter.
