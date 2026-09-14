@@ -34,6 +34,11 @@ seviyesinde bir izin sınırıdır. O durumda ne yapılabileceği
 [docs/ROOTSUZ.md](docs/ROOTSUZ.md) içinde: statik APK analizi (offsetleri
 taramadan çıkarır), ekran tabanlı otomasyon, ve APK'yı yeniden paketleme.
 
+Root'suz ama **canlı bellek** isteyen bir yol daha var: oyunu GameGuardian'ın
+sanal alanında çalıştırmak. `gg/m3gg.lua` orada çalışan, offset kaydeden ve
+koşullu yazma döngüsü kuran bir betiktir — bkz.
+[docs/GAMEGUARDIAN.md](docs/GAMEGUARDIAN.md).
+
 Root'suz ilk adım, motoru tespit etmektir:
 
 ```bash
