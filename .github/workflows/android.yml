@@ -11,6 +11,9 @@ on:
       - 'android/**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Debug + Release APK
@@ -87,6 +90,41 @@ jobs:
           path: |
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/release/*.apk
+
+      - name: APK'yı yayınla (Release + apk-build dalı)
+        if: github.ref_name == 'claude/3d-survival-game-xjhmmw'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          out=/tmp/apkout
+          mkdir -p "$out"
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$out/son-karargah-debug.apk"
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "$out/son-karargah-release.apk"
+          fi
+          ( cd "$out" && sha256sum *.apk > SHA256SUMS.txt && ls -la )
+
+          # 1) Telefondan doğrudan indirilebilsin diye sabit etiketli sürüm
+          gh release delete apk-latest -y --cleanup-tag || true
+          notes="Otomatik derleme (commit ${GITHUB_SHA:0:7}). son-karargah-debug.apk dosyasini telefona indirip kur; kurulum icin bilinmeyen kaynaklara izin vermen gerekir."
+          gh release create apk-latest "$out"/*.apk "$out/SHA256SUMS.txt" \
+            --target "$GITHUB_SHA" \
+            --title "Son Karargah - son derleme" \
+            --notes "$notes"
+
+          # 2) Kaynak dalı temiz kalsın diye APK ayrı bir dalda tutulur
+          work=/tmp/apkrepo
+          rm -rf "$work"
+          mkdir -p "$work"
+          cp "$out"/*.apk "$out/SHA256SUMS.txt" "$work/"
+          cd "$work"
+          git init -q -b apk-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -q -m "APK derlemesi ${GITHUB_SHA:0:7}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" apk-build
 
       - name: Özet
         run: |
