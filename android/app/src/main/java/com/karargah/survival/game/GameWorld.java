@@ -1025,6 +1025,7 @@ public class GameWorld {
     public void onWaveStarted(int wave) {
         started = true;
         selected = null;
+        input.buildMode = false;   // dalga başlayınca savaş moduna dön
         flow.compute(grid);
         audio.playWaveStart();
         big(wave + ". DALGA" + (Balance.isBossWave(wave) ? " — MUTANT DEV!" : ""), 2.6f);
@@ -1049,6 +1050,7 @@ public class GameWorld {
     }
 
     public void onPrepareStarted() {
+        input.buildMode = true;    // hazırlıkta doğrudan inşa moduna geç
         message("Hazırlık: inşa et, geliştir, mevzilen", 3f);
     }
 

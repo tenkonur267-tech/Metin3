@@ -72,11 +72,15 @@ public class WorldRenderer {
         drawZombies(w);
         drawPlayer(w);
 
-        // saydam katman
+        // saydam katman (zemine yapışan katmanlar derinlik kaydırmasıyla çizilir)
         r.beginTransparent();
+        r.setDepthOffset(-2f, -4f);
         drawShadows(w);
+        r.setDepthOffset(-3f, -6f);
         if (buildMode) drawBuildOverlay(w);
+        r.setDepthOffset(-4f, -8f);
         drawRangeRing(w);
+        r.setDepthOffset(0f, 0f);
         r.endTransparent();
 
         r.beginAdditive();
@@ -120,7 +124,9 @@ public class WorldRenderer {
     private void drawGround() {
         M4.setIdentity(model);
         r.draw(models.ground, model, 1f, 1f, 1f, 1f);
+        r.setDepthOffset(-1f, -2f);
         r.draw(models.basePlatform, model, 1f, 1f, 1f, 1f);
+        r.setDepthOffset(0f, 0f);
     }
 
     private void drawDecor(GameWorld w) {
@@ -231,7 +237,7 @@ public class WorldRenderer {
         if (!p.alive && p.reviveTimer <= 0f) return;
         CharModel cm = models.player;
         animatePlayer(cm, p);
-        float lean = p.alive ? 0f : 80f;
+        float lean = p.alive ? 0f : 80f * MathX.DEG;   // trsFull radyan bekler
         M4.trsFull(model, p.x, p.y, p.z, lean, p.yaw, 0f, 1f, 1f, 1f);
         float flash = p.hurtFlash * 1.6f;
         r.drawSkinned(cm.mesh, model, bones, Renderer3D.MAX_BONES,
@@ -369,8 +375,7 @@ public class WorldRenderer {
             float yaw = (float) Math.atan2(dx, dz);
             float pitch = (float) Math.asin(MathX.clamp(dy / len, -1f, 1f));
             M4.trsFull(model, (t.x0 + t.x1) * 0.5f, (t.y0 + t.y1) * 0.5f, (t.z0 + t.z1) * 0.5f,
-                    -pitch / MathX.DEG, yaw / MathX.DEG, 0f,
-                    t.width, t.width, len);
+                    -pitch, yaw, 0f, t.width, t.width, len);
             MathX.colorToRgb(t.color, rgb);
             float a = t.alpha();
             r.draw(models.unitBox, model, rgb[0], rgb[1], rgb[2], a, 1.8f * a);
@@ -383,7 +388,7 @@ public class WorldRenderer {
             if (!p.alive) continue;
             MathX.colorToRgb(p.color, rgb);
             float yaw = (float) Math.atan2(p.vx, p.vz);
-            M4.trsFull(model, p.x, p.y, p.z, 0f, yaw / MathX.DEG, 0f,
+            M4.trsFull(model, p.x, p.y, p.z, 0f, yaw, 0f,
                     p.size, p.size, p.size * 2.4f);
             r.draw(models.unitBox, model, rgb[0], rgb[1], rgb[2], 1f, 1.5f);
         }

@@ -73,9 +73,10 @@ public class Renderer3D {
             + "layout(location=0) in vec3 aPos;\n"
             + "uniform mat4 uViewProj;\n"
             + "uniform vec3 uCamPos;\n"
+            + "uniform float uRadius;\n"
             + "out vec3 vDir;\n"
             + "void main(){\n"
-            + "  vec3 wp = aPos * 400.0 + uCamPos;\n"
+            + "  vec3 wp = aPos * uRadius + uCamPos;\n"
             + "  vDir = normalize(aPos);\n"
             + "  gl_Position = uViewProj * vec4(wp, 1.0);\n"
             + "}\n";
@@ -140,6 +141,8 @@ public class Renderer3D {
     public float gndR = 0.16f, gndG = 0.15f, gndB = 0.13f;
     public float fogR = 0.52f, fogG = 0.58f, fogB = 0.62f;
     public float fogDensity = 0.0075f;
+    /** Gök kubbesinin yarıçapı; kameranın uzak düzleminden küçük olmalı. */
+    public float skyRadius = 200f;
     public float skyTopR = 0.25f, skyTopG = 0.45f, skyTopB = 0.72f;
     public float skyHorR = 0.72f, skyHorG = 0.76f, skyHorB = 0.78f;
 
@@ -200,6 +203,8 @@ public class Renderer3D {
         skyShader.use();
         skyShader.setMat4("uViewProj", viewProj);
         skyShader.setVec3("uCamPos", camX, camY, camZ);
+        // Kubbe uzak düzlemin içinde kalmalı, yoksa tamamen kırpılır.
+        skyShader.setFloat("uRadius", skyRadius);
         skyShader.setVec3("uTop", skyTopR, skyTopG, skyTopB);
         skyShader.setVec3("uHorizon", skyHorR, skyHorG, skyHorB);
         skyShader.setVec3("uSunDir", lightX, lightY, lightZ);
@@ -281,6 +286,20 @@ public class Renderer3D {
     public void endTransparent() {
         GLES30.glDisable(GLES30.GL_BLEND);
         GLES30.glDepthMask(true);
+    }
+
+    /**
+     * Zemine yapışan katmanlar (beton platform, gölgeler, ızgara, menzil
+     * halkaları) için derinlik kaydırması. 16 bit derinlik tamponunda bu
+     * olmadan katmanlar birbirine karışır (z-fighting).
+     */
+    public void setDepthOffset(float factor, float units) {
+        if (factor == 0f && units == 0f) {
+            GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL);
+        } else {
+            GLES30.glEnable(GLES30.GL_POLYGON_OFFSET_FILL);
+            GLES30.glPolygonOffset(factor, units);
+        }
     }
 
     public void setCulling(boolean on) {

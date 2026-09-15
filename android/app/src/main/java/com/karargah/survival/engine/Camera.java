@@ -8,8 +8,8 @@ public class Camera {
     public float pitch = 0.62f;
     public float distance = 13f;
     public float fov = 58f;
-    public float near = 0.35f;
-    public float far = 520f;
+    public float near = 0.5f;
+    public float far = 320f;
 
     public float eyeX, eyeY, eyeZ;
     public final float[] view = new float[16];

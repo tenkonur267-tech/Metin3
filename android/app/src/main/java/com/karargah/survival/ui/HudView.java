@@ -156,6 +156,7 @@ public class HudView extends View {
             drawWorldOverlay(c, gw, w, h);
             drawTopBar(c, gw, w, h);
             if (screen == SCREEN_GAME) {
+                drawMinimap(c, gw, w, h);
                 drawControls(c, gw, w, h);
                 if (input.buildMode) {
                     drawBuildBar(c, gw, w, h);
@@ -396,6 +397,65 @@ public class HudView extends View {
             ui.labelShadow(c, "YENİDEN AYAĞA KALKIYORSUN: " + Math.max(0, Math.round(p.reviveTimer)),
                     w * 0.5f, h * 0.42f, 34 * sc, UiKit.COL_DANGER, Paint.Align.CENTER);
         }
+    }
+
+    /** Sol üstte küçük harita: üs, yapılar, zombiler ve doğma kapıları. */
+    private void drawMinimap(Canvas c, GameWorld gw, float w, float h) {
+        float size = 132 * sc;
+        float l = 14 * sc, t = 84 * sc;
+        float cx = l + size * 0.5f, cy = t + size * 0.5f;
+        float scale = (size * 0.5f) / Balance.WORLD_HALF;
+
+        ui.rect(c, l, t, l + size, t + size, 10 * sc, 0xB00C120F);
+        ui.border(c, l, t, l + size, t + size, 10 * sc, 0x44FFFFFF, 1.4f * sc);
+
+        ui.stroke.setColor(0x334DD0E1);
+        ui.stroke.setStrokeWidth(1.4f * sc);
+        c.drawCircle(cx, cy, Balance.BUILD_RADIUS * scale, ui.stroke);
+
+        ui.fill.setStyle(Paint.Style.FILL);
+        // yapılar
+        for (int i = 0; i < gw.structures.size(); i++) {
+            Structure s;
+            try {
+                s = gw.structures.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (s == null || !s.alive) continue;
+            boolean core = s.type == Balance.S_CORE;
+            ui.fill.setColor(core ? 0xFF4DD0E1
+                    : (s.isTurret() ? 0xFF9CCC65 : 0x99C8C8B0));
+            float r = core ? 4.5f * sc : 1.7f * sc;
+            c.drawCircle(cx + s.x * scale, cy + s.z * scale, r, ui.fill);
+        }
+        // doğma kapıları
+        for (int i = 0; i < gw.waves.activeSpawnPoints; i++) {
+            ui.fill.setColor(0xFF8E2B2B);
+            c.drawCircle(cx + gw.waves.spawnX[i] * scale, cy + gw.waves.spawnZ[i] * scale,
+                    3f * sc, ui.fill);
+        }
+        // zombiler
+        for (int i = 0; i < gw.zombies.size(); i++) {
+            Zombie z;
+            try {
+                z = gw.zombies.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (z == null || !z.alive) continue;
+            ui.fill.setColor(z.isBoss() ? 0xFFFF5252 : (z.elite ? 0xFFCE93D8 : 0xFFE05C4B));
+            c.drawCircle(cx + z.x * scale, cy + z.z * scale, z.isBoss() ? 4f * sc : 2f * sc, ui.fill);
+        }
+        // oyuncu
+        ui.fill.setColor(0xFFFFFFFF);
+        c.drawCircle(cx + gw.player.x * scale, cy + gw.player.z * scale, 3f * sc, ui.fill);
+        ui.stroke.setColor(0xFFFFFFFF);
+        ui.stroke.setStrokeWidth(1.6f * sc);
+        float fx = (float) Math.sin(gw.player.aimYaw), fz = (float) Math.cos(gw.player.aimYaw);
+        c.drawLine(cx + gw.player.x * scale, cy + gw.player.z * scale,
+                cx + gw.player.x * scale + fx * 9 * sc,
+                cy + gw.player.z * scale + fz * 9 * sc, ui.stroke);
     }
 
     private void drawMessages(Canvas c, GameWorld gw, float w, float h) {
@@ -854,7 +914,8 @@ public class HudView extends View {
             float dx = x - lastCamX, dy = y - lastCamY;
             lastCamX = x;
             lastCamY = y;
-            input.addCamDrag(dx * 0.006f, -dy * 0.004f);
+            // "Döner tabla" mantığı: sahneyi parmakla çevirirsin.
+            input.addCamDrag(dx * 0.006f, dy * 0.004f);
         } else if (id == buildPointer) {
             handleBuildTouch(x, y, false);
         }
