@@ -39,6 +39,12 @@ jobs:
       - name: SDK lisanslarını kabul et
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
+      - name: Shader'ları derle (GLSL ES 3.00)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y glslang-tools
+          python3 android/tools/check_shaders.py
+
       - name: Birim testleri (oyun simülasyonu)
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest

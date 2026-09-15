@@ -103,6 +103,25 @@ Hiç harici bağımlılık yok (`dependencies { }` boş): ne AndroidX, ne bir oy
 motoru, ne de model/ses/doku dosyası. Bütün görseller ve sesler açılışta
 koddan üretilir; bu yüzden APK birkaç yüz kilobayt.
 
+## Doğrulama
+
+Oyun mantığı çizimden bağımsız olduğu için CI'da gerçekten test edilebiliyor:
+
+```bash
+cd android
+./gradlew testDebugUnitTest          # oyun simülasyonu + geometri testleri
+python3 tools/check_shaders.py       # GLSL ES 3.00 shader derlemesi
+```
+
+- `SimulationTest` oyunu çizimsiz olarak binlerce kare koşturur: dalgaların
+  tıkanmadığını, sayıların bozulmadığını (NaN/negatif kaynak), inşa–geliştir–sat
+  akışının ve denge tablolarının tutarlılığını doğrular.
+- `GeometryTest` prosedürel mesh üreticisini denetler: normaller birim
+  uzunlukta mı, üçgen sarım yönü doğru mu, kapalı şekillerin yüzleri dışa
+  bakıyor mu (ters sarım modelleri içten gösterir).
+- `tools/check_shaders.py` gölgelendiricileri `glslangValidator` ile derler;
+  shader hataları aksi halde ancak cihazda, oyun açılırken ortaya çıkar.
+
 ## Dengeyi değiştirmek
 
 `game/Balance.java` içindeki tablolar oyunun tamamını belirler: yapı

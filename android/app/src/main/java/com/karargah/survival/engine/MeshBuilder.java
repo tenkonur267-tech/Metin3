@@ -282,6 +282,20 @@ public class MeshBuilder {
         return vCount;
     }
 
+    /** Ham köşe verisi (kopya) — doğrulama testleri için. */
+    public float[] vertexData() {
+        float[] v = new float[vCount * Mesh.FLOATS_PER_VERTEX];
+        System.arraycopy(verts, 0, v, 0, v.length);
+        return v;
+    }
+
+    /** Ham üçgen indeksleri (kopya) — doğrulama testleri için. */
+    public int[] indexData() {
+        int[] idx = new int[iCount];
+        System.arraycopy(indices, 0, idx, 0, iCount);
+        return idx;
+    }
+
     public Mesh build() {
         float[] v = new float[vCount * Mesh.FLOATS_PER_VERTEX];
         System.arraycopy(verts, 0, v, 0, v.length);
