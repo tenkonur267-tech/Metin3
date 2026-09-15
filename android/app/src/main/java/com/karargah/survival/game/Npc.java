@@ -73,8 +73,13 @@ public class Npc {
     private float repathTimer;
     private float goalX, goalZ;
     private float stuckTimer;
+    private int stuckCount;
     private float lastX, lastZ;
     private float detourTimer;
+    /** Koridor kontrolü pahalı: sonucu kısa süre önbelleğe alırız. */
+    private float corridorTimer;
+    private boolean corridorOk;
+    private float corridorGoalX, corridorGoalZ;
     private float detourX, detourZ;
     private float taskTimer;
     /** Aynı işte ne kadar süredir çalışıyor (uzun sürerse diğer görevlere sıra gelir). */
@@ -390,6 +395,29 @@ public class Npc {
         return Math.min(70f, (taskElapsed - 8f) * 10f);
     }
 
+    /**
+     * Oyunun evresine göre iş öncelikleri. Dalga sırasında onarım/iyileştirme
+     * öne çıkar, inşaat ve ganimet toplama geri plana düşer; hazırlıkta tam
+     * tersi olur. Yoldaş böylece "ne zaman ne yapılır" ayrımını bilir.
+     */
+    private float phaseMul(int duty, boolean prepare) {
+        if (prepare) {
+            switch (duty) {
+                case Balance.DUTY_BUILD: return 1.8f;
+                case Balance.DUTY_GATHER: return 1.5f;
+                case Balance.DUTY_REPAIR: return 1.4f;
+                default: return 1f;
+            }
+        }
+        switch (duty) {
+            case Balance.DUTY_BUILD: return 0.15f;    // dalga ortasında şantiye açmaz
+            case Balance.DUTY_GATHER: return 0.4f;    // sadece ayağının dibindekini alır
+            case Balance.DUTY_REPAIR: return 1.25f;   // ateş altında duvar onarımı değerli
+            case Balance.DUTY_HEAL: return 1.4f;
+            default: return 1f;
+        }
+    }
+
     private void chooseTask(GameWorld w) {
         // Seçilen işe kısa süre bağlı kal: yoksa iki iş arasında gidip gelir.
         if (task != TASK_NONE && taskLock > 0f) return;
@@ -406,8 +434,8 @@ public class Npc {
         if (hasDuty(Balance.DUTY_BUILD)) {
             BuildPlan p = w.nearestPlan(x, z, range * 2.5f);
             if (p != null) {
-                float score = 90f + (prepare ? 45f : 0f) - MathX.dist(x, z, p.x, p.z) * 0.6f
-                        - rotationPenalty(TASK_BUILD);
+                float score = (70f - MathX.dist(x, z, p.x, p.z) * 0.6f)
+                        * phaseMul(Balance.DUTY_BUILD, prepare) - rotationPenalty(TASK_BUILD);
                 if (p.waiting && !w.canAfford(w.player.buildCost(p.def().cost))) score -= 80f;
                 if (score > best) {
                     best = score;
@@ -419,9 +447,10 @@ public class Npc {
         if (hasDuty(Balance.DUTY_REPAIR)) {
             Structure s = w.mostDamagedStructure(x, z, range);
             if (s != null) {
-                float score = 40f + 70f * (1f - s.hpFraction()) - MathX.dist(x, z, s.x, s.z) * 0.5f
+                float base = 40f + 70f * (1f - s.hpFraction()) - MathX.dist(x, z, s.x, s.z) * 0.5f;
+                if (s.type == Balance.S_CORE) base += 40f;
+                float score = base * phaseMul(Balance.DUTY_REPAIR, prepare)
                         - rotationPenalty(TASK_REPAIR);
-                if (s.type == Balance.S_CORE) score += 30f;
                 if (score > best) {
                     best = score;
                     task = TASK_REPAIR;
@@ -433,8 +462,8 @@ public class Npc {
         if (hasDuty(Balance.DUTY_HEAL)) {
             float[] h = w.nearestHurtAllyNeed(x, z, range);
             if (h != null) {
-                float score = 45f + 90f * h[2] - MathX.dist(x, z, h[0], h[1]) * 0.5f
-                        - rotationPenalty(TASK_HEAL);
+                float score = (45f + 90f * h[2] - MathX.dist(x, z, h[0], h[1]) * 0.5f)
+                        * phaseMul(Balance.DUTY_HEAL, prepare) - rotationPenalty(TASK_HEAL);
                 if (score > best) {
                     best = score;
                     task = TASK_HEAL;
@@ -446,12 +475,13 @@ public class Npc {
             }
         }
         if (hasDuty(Balance.DUTY_GATHER)) {
-            Pickup p = w.nearestPickup(x, z, Math.max(30f, range * 2.5f));
+            float searchRange = prepare ? Math.max(38f, range * 2.5f) : 14f;
+            Pickup p = w.nearestPickup(x, z, searchRange);
             if (p != null) {
-                float score = 46f + (prepare ? 25f : 0f)
-                        + Math.min(30f, w.pickups.size() * 2f)
-                        - MathX.dist(x, z, p.x, p.z) * 0.35f - rotationPenalty(TASK_GATHER);
-                if (role == Balance.NPC_SCAVENGER) score += 25f;   // uzmanı öncelik verir
+                float score = (52f + Math.min(30f, w.pickups.size() * 2f)
+                        - MathX.dist(x, z, p.x, p.z) * 0.35f)
+                        * phaseMul(Balance.DUTY_GATHER, prepare) - rotationPenalty(TASK_GATHER);
+                if (role == Balance.NPC_SCAVENGER) score += 25f;
                 if (score > best) {
                     best = score;
                     task = TASK_GATHER;
@@ -644,8 +674,8 @@ public class Npc {
             dirX = detourX - x;
             dirZ = detourZ - z;
             if (MathX.len(dirX, dirZ) < 0.5f) detourTimer = 0f;
-        } else if (PathFinder.clearLine(w.grid, x, z, tx, tz)) {
-            pathLen = 0;
+        } else if (corridorClear(w, tx, tz, dist, dt)) {
+            pathLen = 0;               // gövde sığacak kadar açık: doğrudan git
             dirX = tx - x;
             dirZ = tz - z;
         } else {
@@ -695,19 +725,63 @@ public class Npc {
         }
 
         stuckTimer += dt;
-        if (stuckTimer > 0.6f) {
+        if (stuckTimer > 0.5f) {
             float moved = MathX.dist(lastX, lastZ, x, z);
-            if (moved < 0.12f && (!movedX || !movedZ)) {
-                if (pathLen > 0) {
-                    requestPath(w, tx, tz);
+            if (moved < 0.1f) {
+                stuckCount++;
+                if (stuckCount == 1) {
+                    requestPath(w, tx, tz);           // önce yolu yenile
                 } else {
-                    pickDetour(w, tx, tz);
+                    stepToFreeNeighbor(w, tx, tz);    // olmadı: hücre hücre ilerle
                 }
+            } else {
+                stuckCount = 0;
             }
             lastX = x;
             lastZ = z;
             stuckTimer = 0f;
         }
+    }
+
+    /**
+     * Takıldığında ızgara üstünde hedefe en çok yaklaştıran serbest komşu
+     * hücreye yönelir. Duvar köşelerinde sıkışmayı bitiren son çare.
+     */
+    private void stepToFreeNeighbor(GameWorld w, float tx, float tz) {
+        int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
+        int cell = PathFinder.bestFreeNeighbor(w.grid, gx, gz, tx, tz);
+        if (cell < 0) return;
+        detourX = BuildGrid.cellToWorld(cell % Balance.GRID);
+        detourZ = BuildGrid.cellToWorld(cell / Balance.GRID);
+        detourTimer = 1.1f;
+        pathLen = 0;
+    }
+
+    /** Duvarın içinde kaldıysa en yakın serbest hücreye it. */
+    public void unstickFromWalls(GameWorld w) {
+        int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
+        Structure s = w.grid.at(gx, gz);
+        if (s == null || !s.blocks()) return;
+        int cell = PathFinder.bestFreeNeighbor(w.grid, gx, gz, x, z);
+        if (cell < 0) return;
+        float cx = BuildGrid.cellToWorld(cell % Balance.GRID);
+        float cz = BuildGrid.cellToWorld(cell / Balance.GRID);
+        x = MathX.damp(x, cx, 9f, 0.016f);
+        z = MathX.damp(z, cz, 9f, 0.016f);
+    }
+
+    /** Hedefe doğrudan yürünebilir mi? (sonuç kısa süre önbelleklenir) */
+    private boolean corridorClear(GameWorld w, float tx, float tz, float dist, float dt) {
+        if (dist > 26f) return false;      // uzak hedefte doğrudan gitmeyi denemeyiz
+        corridorTimer -= dt;
+        if (corridorTimer > 0f && MathX.dist(corridorGoalX, corridorGoalZ, tx, tz) < 1.5f) {
+            return corridorOk;
+        }
+        corridorTimer = 0.22f;
+        corridorGoalX = tx;
+        corridorGoalZ = tz;
+        corridorOk = PathFinder.clearCorridor(w.grid, x, z, tx, tz, radius() * 1.35f);
+        return corridorOk;
     }
 
     private void requestPath(GameWorld w, float tx, float tz) {

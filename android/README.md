@@ -37,10 +37,16 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
   olduğuna kendisi karar verir, uzun süre aynı işte kalırsa sırayı diğerine
   bırakır. Her rolün her görevde ayrı verimi vardır (mühendis inşada %100,
   muhafız %50 gibi) ve panelde gösterilir.
-- **İnşaatçı yoldaşlar:** İnşa modunda PLAN düğmesini açıp zemine dokununca
-  şantiye bırakırsın; İNŞA görevi olan yoldaş gider, ortak kasadan ödeyip
-  yapıyı kurar (ilerleme zeminde çubukla görünür). OTO açıkken yıkılan her
-  yapı için kendiliğinden plan açılır — ekip üssü sen uğraşmadan yeniden diker.
+- **Kendi kendine inşaat (OTO İNŞA):** Ekip sana sormadan üssü planlar. Mimar
+  her hazırlık aşamasında durumu okur ve şu sırayla karar verir: enerji açığı
+  varsa jeneratör → sur hattındaki delik (kapılar bilerek açık bırakılır) →
+  kule sayısı en az olan yöne kule → kapı önüne tuzak → destek yapıları
+  (cephanelik, tamir, tıbbi, toplayıcı) → yapacak yeni iş kalmadıysa mevcut
+  yapıları geliştirir. Kasada oyuncu için asgari yedek bırakır, kararının
+  gerekçesini söyler ("Batı taraf zayıf, Tesla Kulesi kuruyorum").
+  Dalga sırasında yeni şantiye açmaz; o zaman ekip savaşır.
+- **Elle plan:** İstersen PLAN düğmesini açıp kendin şantiye bırakırsın; senin
+  planların önceliklidir. Şantiyeye dokunmak iptal eder (%80 iade).
 - **Ortak kasa:** Hurda ve çekirdek tek kasada. Senin topladığın, toplayıcının
   getirdiği, dalga ödülleri hep oraya girer; inşaat, geliştirme ve yoldaş
   ücretleri hep oradan ödenir. Üst çubukta ekibin katkısı ayrıca gösterilir.
@@ -129,7 +135,8 @@ android/app/src/main/java/com/karargah/survival/
 │   ├── FlowField.java       zombiler için Dijkstra akış alanı
 │   ├── PathFinder.java      yoldaşlar için A* (duvarları dolaşır)
 │   ├── Npc.java             yoldaş yapay zekâsı: duruş + çoklu görev, iş seçimi
-│   ├── BuildPlan.java       şantiye (yoldaşların kurduğu inşa planı)
+│   ├── BuildPlan.java       şantiye (yoldaşların kurduğu inşa/geliştirme planı)
+│   ├── BasePlanner.java     üssü okuyup nereye ne kurulacağına karar veren mimar
 │   ├── Advisor.java         üssü değerlendirip öneri veren yoldaş aklı
 │   ├── Pickup.java          yere düşen hurda/çekirdek
 │   ├── WaveManager.java     dalga kadroları ve hazırlık süresi

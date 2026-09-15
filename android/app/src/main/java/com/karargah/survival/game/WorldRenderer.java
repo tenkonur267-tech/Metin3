@@ -420,15 +420,22 @@ public class WorldRenderer {
         for (int i = 0; i < w.plans.size(); i++) {
             BuildPlan p = w.plans.get(i);
             if (!p.alive || !visible(w, p.x, p.z, 3f)) continue;
-            Mesh ghost = p.type == Balance.S_WALL
-                    ? models.wallMesh[1][w.wallMaskAt(p.gx, p.gz)]
-                    : models.structBase[p.type][1];
-            float grow = 0.35f + 0.65f * MathX.clamp(p.progress, 0f, 1f);
-            M4.trs(model, p.x, 0f, p.z, p.type == Balance.S_WALL ? 0f : p.rotation * MathX.PI * 0.5f,
-                    1f, grow, 1f);
             float warn = p.waiting ? 1f : 0f;
-            r.draw(ghost, model, 0.5f + warn * 0.8f, 1.1f - warn * 0.6f, 1.4f - warn * 0.8f,
-                    0.42f, 0.4f);
+            if (!p.isUpgrade()) {
+                Mesh ghost = p.type == Balance.S_WALL
+                        ? models.wallMesh[1][w.wallMaskAt(p.gx, p.gz)]
+                        : models.structBase[p.type][1];
+                float grow = 0.35f + 0.65f * MathX.clamp(p.progress, 0f, 1f);
+                M4.trs(model, p.x, 0f, p.z,
+                        p.type == Balance.S_WALL ? 0f : p.rotation * MathX.PI * 0.5f,
+                        1f, grow, 1f);
+                r.draw(ghost, model, 0.5f + warn * 0.8f, 1.1f - warn * 0.6f, 1.4f - warn * 0.8f,
+                        0.42f, 0.4f);
+            } else {
+                // Geliştirme şantiyesi: yapının çevresinde parlayan halka
+                M4.trs(model, p.x, 0.12f, p.z, 0f, 1.25f, 1f, 1.25f);
+                r.draw(models.ringFlat, model, 1f, 0.85f, 0.35f, 0.75f, 0.9f);
+            }
 
             // zeminde ilerleme çubuğu
             float prog = MathX.clamp(p.progress, 0.02f, 1f);

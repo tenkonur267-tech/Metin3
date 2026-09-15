@@ -19,6 +19,19 @@ public class BuildPlan {
     public boolean alive = true;
     /** Kasa yetmediği için bekliyor. */
     public boolean waiting;
+    /** Doluysa bu yapı geliştirilecek (yeni yapı kurulmayacak). */
+    public Structure upgradeTarget;
+
+    public boolean isUpgrade() {
+        return upgradeTarget != null;
+    }
+
+    /** Planın maliyeti (yeni yapı ya da geliştirme). */
+    public int cost(GameWorld w) {
+        return isUpgrade()
+                ? w.player.buildCost(upgradeTarget.def().upgradeCost(upgradeTarget.level))
+                : w.player.buildCost(def().cost);
+    }
 
     public BuildPlan(int type, int gx, int gz, int rotation, boolean auto) {
         this.type = type;

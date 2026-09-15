@@ -126,6 +126,7 @@ public final class SaveStore {
             JSONArray planArr = new JSONArray();
             for (int i = 0; i < w.plans.size(); i++) {
                 BuildPlan bp = w.plans.get(i);
+                if (bp.isUpgrade()) continue;   // yapı referansı taşır, yeniden üretilir
                 JSONObject jpl = new JSONObject();
                 jpl.put("t", bp.type);
                 jpl.put("x", bp.gx);

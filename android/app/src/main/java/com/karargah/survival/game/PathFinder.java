@@ -143,19 +143,57 @@ public class PathFinder {
         return (dx + dz) + (1.414f - 2f) * min;
     }
 
-    /** İki nokta arasında duvar var mı (ateş hattı ve kestirme için). */
+    /** İki nokta arasında duvar var mı (ateş hattı için; gövde genişliği yok). */
     public static boolean clearLine(BuildGrid grid, float x0, float z0, float x1, float z1) {
+        return clearCorridor(grid, x0, z0, x1, z1, 0f);
+    }
+
+    /**
+     * Verilen genişlikte bir koridor açık mı? Yürüyüş için gövde yarıçapı
+     * verilir: yoksa hat "açık" görünüp karakter duvarın köşesine takılır.
+     */
+    public static boolean clearCorridor(BuildGrid grid, float x0, float z0,
+                                        float x1, float z1, float radius) {
         float dx = x1 - x0, dz = z1 - z0;
         float dist = (float) Math.sqrt(dx * dx + dz * dz);
         if (dist < 0.01f) return true;
-        int steps = (int) (dist / 0.45f) + 1;
+        float nx = -dz / dist, nz = dx / dist;      // dike doğrultu
+        int steps = (int) (dist / 0.4f) + 1;
         for (int i = 1; i <= steps; i++) {
             float t = i / (float) steps;
             float px = x0 + dx * t, pz = z0 + dz * t;
-            Structure s = grid.atWorld(px, pz);
-            if (s != null && s.blocks()) return false;
+            if (blockedAt(grid, px, pz)) return false;
+            if (radius > 0.01f) {
+                if (blockedAt(grid, px + nx * radius, pz + nz * radius)) return false;
+                if (blockedAt(grid, px - nx * radius, pz - nz * radius)) return false;
+            }
         }
         return true;
+    }
+
+    private static boolean blockedAt(BuildGrid grid, float x, float z) {
+        Structure s = grid.atWorld(x, z);
+        return s != null && s.blocks();
+    }
+
+    /** Hücrenin serbest komşuları arasında hedefe en çok yaklaştıran. */
+    public static int bestFreeNeighbor(BuildGrid grid, int gx, int gz, float tx, float tz) {
+        int best = -1;
+        float bestD = Float.MAX_VALUE;
+        for (int k = 0; k < 8; k++) {
+            int nx = gx + DX[k], nz = gz + DZ[k];
+            if (!passable(grid, nx, nz)) continue;
+            if (k >= 4 && (!passable(grid, gx + DX[k], gz) || !passable(grid, gx, gz + DZ[k]))) {
+                continue;
+            }
+            float cx = BuildGrid.cellToWorld(nx), cz = BuildGrid.cellToWorld(nz);
+            float d = (cx - tx) * (cx - tx) + (cz - tz) * (cz - tz);
+            if (d < bestD) {
+                bestD = d;
+                best = nz * N + nx;
+            }
+        }
+        return best;
     }
 
     // ---- ikili yığın ----------------------------------------------------

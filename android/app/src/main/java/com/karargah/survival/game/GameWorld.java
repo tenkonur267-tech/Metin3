@@ -30,6 +30,8 @@ public class GameWorld {
     public final ArrayList<Pickup> pickups = new ArrayList<>();
     public final ArrayList<Npc> npcs = new ArrayList<>();
     public final ArrayList<BuildPlan> plans = new ArrayList<>();
+    /** Hücre -> plan eşlemesi (arama O(1) olsun diye). */
+    private final BuildPlan[] planCells = new BuildPlan[Balance.GRID * Balance.GRID];
     /** Yıkılan yapılar için kendiliğinden plan açılsın mı? */
     public boolean autoRebuild = true;
     /** Ortak kasaya kimin ne kadar kattığı (arayüzde gösterilir). */
@@ -60,6 +62,7 @@ public class GameWorld {
     public float nightFactor;      // 0 = gündüz (hazırlık), 1 = gece (dalga)
 
     public final Advisor advisor = new Advisor();
+    public final BasePlanner planner = new BasePlanner();
     private boolean flowDirty = true;
     private float flowTimer;
     private float camDistTarget = 14f;
@@ -88,6 +91,7 @@ public class GameWorld {
         pickups.clear();
         npcs.clear();
         plans.clear();
+        java.util.Arrays.fill(planCells, null);
         scrapFromNpcs = 0;
         scrapFromPlayer = 0;
         grid.clearAll();
@@ -104,6 +108,8 @@ public class GameWorld {
         structuresLost = 0;
         scrapEarned = 0;
         nightFactor = 0f;
+        planner.reset();
+        advisor.reset();
 
         createCore();
         // Başlangıç sur hattı. Her kenarın ortasında iki hücrelik kapı var:
@@ -293,8 +299,8 @@ public class GameWorld {
                 case Cmd.TOGGLE_AUTOBUILD:
                     autoRebuild = !autoRebuild;
                     message(autoRebuild
-                            ? "Otomatik yeniden inşa açık: yıkılan yapılar için plan açılır"
-                            : "Otomatik yeniden inşa kapalı", 2.2f);
+                            ? "Otomatik inşaat açık: ekip üssü kendi planlayıp kuruyor"
+                            : "Otomatik inşaat kapalı: planları sen bırakacaksın", 2.4f);
                     break;
                 case Cmd.CLEAR_ADVICE: advisor.tipTimer = 0f; break;
                 case Cmd.START_WAVE: waves.skipPrepare(); break;
@@ -409,11 +415,18 @@ public class GameWorld {
     // ---- inşa planları --------------------------------------------------
 
     public BuildPlan planAt(int gx, int gz) {
-        for (int i = 0; i < plans.size(); i++) {
-            BuildPlan p = plans.get(i);
-            if (p.alive && p.gx == gx && p.gz == gz) return p;
-        }
-        return null;
+        if (!BuildGrid.inBounds(gx, gz)) return null;
+        BuildPlan p = planCells[gz * Balance.GRID + gx];
+        return (p != null && p.alive) ? p : null;
+    }
+
+    private void indexPlan(BuildPlan p) {
+        planCells[p.gz * Balance.GRID + p.gx] = p;
+    }
+
+    private void unindexPlan(BuildPlan p) {
+        int i = p.gz * Balance.GRID + p.gx;
+        if (planCells[i] == p) planCells[i] = null;
     }
 
     /** @return plan eklendiyse true. */
@@ -426,12 +439,26 @@ public class GameWorld {
             if (!auto) message(d.name + " " + d.unlockWave + ". dalgada açılır", 2f);
             return false;
         }
-        plans.add(new BuildPlan(type, gx, gz, input.buildRotation, auto));
+        BuildPlan created = new BuildPlan(type, gx, gz, input.buildRotation, auto);
+        plans.add(created);
+        indexPlan(created);
         if (!auto) {
             audio.playClick();
             addText(BuildGrid.cellToWorld(gx), 1.4f, BuildGrid.cellToWorld(gz),
                     "plan", 0x81D4FA, 0.9f, 0.8f);
         }
+        return true;
+    }
+
+    /** Mevcut bir yapıyı geliştirmek için şantiye açar. */
+    public boolean addUpgradePlan(Structure s) {
+        if (s == null || !s.alive || s.level >= s.def().maxLevel) return false;
+        if (planAt(s.gx, s.gz) != null) return false;
+        if (plans.size() >= 60) return false;
+        BuildPlan p = new BuildPlan(s.type, s.gx, s.gz, s.rotation, true);
+        p.upgradeTarget = s;
+        plans.add(p);
+        indexPlan(p);
         return true;
     }
 
@@ -443,6 +470,7 @@ public class GameWorld {
             addToTreasury(refund, 0, false);
         }
         p.alive = false;
+        unindexPlan(p);
         plans.remove(p);
         audio.playSell();
     }
@@ -478,7 +506,10 @@ public class GameWorld {
     public boolean workOnPlan(Npc n, BuildPlan p, float dt, float workRate) {
         if (!p.alive) return false;
         if (!p.paid) {
-            int cost = player.buildCost(p.def().cost);
+            int cost = p.cost(this);
+            if (p.isUpgrade() && p.upgradeTarget.def().upgradeCores(p.upgradeTarget.level) > cores()) {
+                return false;
+            }
             if (!spendScrap(cost)) {
                 if (!p.waiting) {
                     p.waiting = true;
@@ -503,7 +534,25 @@ public class GameWorld {
 
     private void completePlan(Npc n, BuildPlan p) {
         p.alive = false;
+        unindexPlan(p);
         plans.remove(p);
+        if (p.isUpgrade()) {
+            Structure s = p.upgradeTarget;
+            if (s.alive && s.level < s.def().maxLevel) {
+                int cores = s.def().upgradeCores(s.level);
+                if (cores > 0) player.cores = Math.max(0, player.cores - cores);
+                s.level++;
+                float frac = s.hpFraction();
+                s.maxHp = s.def().hpAt(s.level) * player.structHpBonus();
+                s.hp = Math.max(s.maxHp * frac, s.maxHp * 0.6f);
+                s.buildAnim = 0.7f;
+                particles.sparks(s.x, 1.4f, s.z, 16, 0xFFD54F);
+                audio.playUpgrade();
+                addText(s.x, 2.2f, s.z, "Sv." + s.level, 0xFFD54F, 1.2f, 1.1f);
+                if (n != null) n.built++;
+            }
+            return;
+        }
         if (grid.canPlace(p.gx, p.gz) != BuildGrid.OK) return;
         Structure s = new Structure(p.type, 1, p.gx, p.gz, player.structHpBonus(), p.rotation);
         structures.add(s);
@@ -536,12 +585,22 @@ public class GameWorld {
         for (int i = plans.size() - 1; i >= 0; i--) {
             BuildPlan p = plans.get(i);
             if (!p.alive) {
+                unindexPlan(p);
                 plans.remove(i);
                 continue;
             }
-            // Üstüne yapı kurulduysa plan geçersiz olur.
-            if (grid.at(p.gx, p.gz) != null) {
+            if (p.isUpgrade()) {
+                // Geliştirilecek yapı yıkıldıysa ya da azami seviyedeyse iptal
+                if (!p.upgradeTarget.alive
+                        || p.upgradeTarget.level >= p.upgradeTarget.def().maxLevel) {
+                    p.alive = false;
+                    unindexPlan(p);
+                    plans.remove(i);
+                }
+            } else if (grid.at(p.gx, p.gz) != null) {
+                // Üstüne yapı kurulduysa plan geçersiz olur.
                 p.alive = false;
+                unindexPlan(p);
                 plans.remove(i);
             }
         }
@@ -572,7 +631,11 @@ public class GameWorld {
                 b.z += dz / d * push;
             }
         }
+        for (int i = 0; i < npcs.size(); i++) {
+            npcs.get(i).unstickFromWalls(this);
+        }
         advisor.update(this, dt);
+        planner.update(this, dt);
     }
 
     /** Kışla seviyesinin izin verdiği yoldaş sayısı. */

@@ -740,8 +740,12 @@ public class HudView extends View {
                 planMode ? "PLAN ✓" : "PLAN", planMode ? "yoldaş kursun" : "kendin kur",
                 planMode ? UiKit.STYLE_PRIMARY : UiKit.STYLE_NORMAL, true, A_PLAN_MODE, 0);
         ui.button(c, 104 * sc, h - 308 * sc, 190 * sc, h - 266 * sc,
-                gw.autoRebuild ? "OTO ✓" : "OTO", "yıkılanı dik",
+                gw.autoRebuild ? "OTO İNŞA ✓" : "OTO İNŞA", "ekip kendi karar verir",
                 gw.autoRebuild ? UiKit.STYLE_PRIMARY : UiKit.STYLE_GHOST, true, A_AUTOBUILD, 0);
+        if (gw.autoRebuild && !gw.planner.lastDecision.isEmpty()) {
+            ui.label(c, "Mimar: " + gw.planner.lastDecision, 14 * sc, h - 250 * sc,
+                    13.5f * sc, UiKit.COL_DIM, Paint.Align.LEFT);
+        }
         if (planCount > 0) {
             ui.button(c, 14 * sc, h - 262 * sc, 190 * sc, h - 220 * sc,
                     "PLANLARI İPTAL", planCount + " şantiye", UiKit.STYLE_DANGER,
@@ -1215,9 +1219,12 @@ public class HudView extends View {
             "Bir yoldaşa aynı anda birden çok görev verilebilir: savaş + onar + inşa + topla.",
             "Hangisinin acil olduğuna kendisi karar verir; TUT/SALDIR için haritada nokta seç.",
             "",
-            "İNŞAAT: İnşa modunda PLAN düğmesini aç, zemine dokun — oraya şantiye bırakırsın.",
-            "İnşa görevi olan yoldaş gider, ortak kasadan ödeyip yapıyı kurar. OTO açıksa",
-            "yıkılan yapılar için kendiliğinden plan açılır, ekip üssü kendi onarır.",
+            "İNŞAAT: OTO İNŞA açıkken ekip sana sormadan üssü kendisi planlar — enerji",
+            "açığına jeneratör, sur deliğine duvar, zayıf yöne kule, kapı önüne tuzak,",
+            "gerekirse destek yapıları kurar; yapacak yeni iş kalmazsa mevcutları geliştirir.",
+            "Kararını ve gerekçesini sol altta \"Mimar:\" satırında ve baloncukta söyler.",
+            "Kendin plan bırakmak istersen PLAN düğmesini açıp zemine dokun; senin planların",
+            "önce yapılır. Şantiyeye dokunmak iptal eder, ödenen hurdanın %80'i geri gelir.",
             "",
             "GANİMET: Ölen zombiler yere hurda düşürür ve toplanana kadar orada kalır.",
             "Üstüne gidersen kendiliğinden çekilir, TOPLA görevli yoldaş senin için toplar.",

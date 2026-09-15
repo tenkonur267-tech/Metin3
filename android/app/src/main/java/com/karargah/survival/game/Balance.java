@@ -496,7 +496,7 @@ public final class Balance {
     }
 
     /** İnşaat hızı: saniyede tamamlanan oran (iş gücüne göre). */
-    public static final float BUILD_WORK_PER_SEC = 0.055f;
+    public static final float BUILD_WORK_PER_SEC = 0.085f;
 
     public static final int NPC_MAX_LEVEL = 5;
     public static final int NPC_WEAPON_MAX = 5;

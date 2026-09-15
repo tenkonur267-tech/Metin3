@@ -15,6 +15,7 @@ import com.karargah.survival.game.Npc;
 import com.karargah.survival.game.PathFinder;
 import com.karargah.survival.game.Pickup;
 import com.karargah.survival.game.Structure;
+import com.karargah.survival.game.WaveManager;
 
 import org.junit.Test;
 
@@ -371,7 +372,7 @@ public class SquadTest {
 
         run(w, 30f);
         assertNotNull("yoldaş planı kurmalı", w.grid.at(gx, gz));
-        assertTrue("plan listesi boşalmalı", w.plans.isEmpty());
+        assertTrue("o plan tamamlanmış olmalı", w.planAt(gx, gz) == null);
         assertTrue("hurda ortak kasadan düşmeli", w.scrap() < before);
         assertTrue("inşa sayacı işlemeli", n.built > 0);
     }
@@ -437,5 +438,153 @@ public class SquadTest {
         in.push(new Cmd(Cmd.CANCEL_PLAN, 0, gx, gz));
         w.update(0.016f);
         assertTrue("plan iptal edilmeli", w.plans.isEmpty());
+    }
+
+    // ---- kendi kendine inşaat kararları ----
+
+    /** Ekip, oyuncu hiçbir şey yapmadan üssü planlayıp kurmalı. */
+    @Test
+    public void mimarKendiKendineInsaEder() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        n.selfImprove = false;
+        w.player.scrap = 6000;
+        w.waves.wave = 4;
+        int before = w.structures.size();
+        run(w, 60f);
+        assertTrue("mimar plan açmalı ya da yapı kurulmalı",
+                w.structures.size() > before || !w.plans.isEmpty());
+        assertTrue("kararını bildirmeli", !w.planner.lastDecision.isEmpty());
+        assertTrue("hepsi otomatik plan olmalı",
+                w.plans.isEmpty() || w.plans.get(0).auto);
+    }
+
+    /** Enerji açığı varsa önce jeneratör kurar. */
+    @Test
+    public void enerjiAciginaJeneratorKurar() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        n.selfImprove = false;
+        w.waves.wave = 5;
+        w.player.scrap = 4000;
+        // enerji tüketen kuleler ekle
+        for (int i = 0; i < 5; i++) {
+            w.placeFree(Balance.S_MG, BuildGrid.N / 2 - 3 + i, BuildGrid.N / 2 - 6);
+        }
+        run(w, 8f);
+        assertTrue("enerji açığı oluşmalı", w.powerUse > w.powerGen);
+        run(w, 50f);
+        boolean generator = false;
+        for (int i = 0; i < w.structures.size(); i++) {
+            if (w.structures.get(i).type == Balance.S_GENERATOR) generator = true;
+        }
+        for (int i = 0; i < w.plans.size(); i++) {
+            if (w.plans.get(i).type == Balance.S_GENERATOR) generator = true;
+        }
+        assertTrue("enerji açığına jeneratör ile cevap vermeli", generator);
+    }
+
+    /** Sur hattındaki delik kapatılmalı ama kapılar açık kalmalı. */
+    @Test
+    public void surDeligiKapatilirKapiAcikKalir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        n.selfImprove = false;
+        w.player.scrap = 6000;
+        w.waves.wave = 3;
+
+        // sur hattından bir duvarı sök (kapı olmayan bir yerden)
+        int c = BuildGrid.N / 2;
+        Structure gapWall = w.grid.at(c + 3, c - 5);
+        assertNotNull("sur duvarı olmalı", gapWall);
+        int gx = gapWall.gx, gz = gapWall.gz;
+        w.grid.clear(gx, gz);
+        w.structures.remove(gapWall);
+        gapWall.alive = false;
+
+        run(w, 70f);
+        boolean filled = w.grid.at(gx, gz) != null || w.planAt(gx, gz) != null;
+        assertTrue("sur deliği kapatılmalı", filled);
+        // kapı hücreleri (kenar ortası) kapatılmamalı
+        assertTrue("kuzey kapısı açık kalmalı",
+                w.grid.at(c, c + 4) == null && w.planAt(c, c + 4) == null);
+    }
+
+    /** Dalga sırasında yeni şantiye açmaz; ekip savaşır. */
+    @Test
+    public void dalgaSirasindaInsaatPlanlamaz() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        n.selfImprove = false;
+        w.player.scrap = 6000;
+        w.waves.wave = 4;
+        in.push(new Cmd(Cmd.START_WAVE));
+        run(w, 4f);
+        assertEquals("dalga başlamalı", WaveManager.PHASE_WAVE, w.waves.phase);
+        w.plans.clear();
+        run(w, 30f);
+        assertTrue("dalga sırasında otomatik şantiye açmamalı", w.plans.isEmpty());
+    }
+
+    /** Yapacak yeni iş kalmayınca mevcut yapıları geliştirir. */
+    @Test
+    public void isBitinceYapilariGelistirir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        n.selfImprove = false;
+        w.player.scrap = 30000;
+        w.player.cores = 50;
+        w.waves.wave = 6;
+        boolean upgraded = false;
+        for (int step = 0; step < 40 && !upgraded; step++) {
+            run(w, 5f);
+            for (int i = 0; i < w.plans.size(); i++) {
+                if (w.plans.get(i).isUpgrade()) upgraded = true;
+            }
+            for (int i = 0; i < w.structures.size(); i++) {
+                if (w.structures.get(i).level > 1) upgraded = true;
+            }
+        }
+        assertTrue("bir noktada geliştirme kararı vermeli", upgraded);
+    }
+
+    /** Duvar labirentinin içinde takılıp kalmamalı. */
+    @Test
+    public void yoldasDuvarLabirentindeTakilmaz() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        n.selfImprove = false;
+        w.autoRebuild = false;
+
+        // NPC ile hedef arasına iki kademeli duvar (aralarında kaydırılmış geçit)
+        int c = BuildGrid.N / 2;
+        for (int i = -8; i <= 8; i++) {
+            if (i != 6 && i != 7) w.placeFree(Balance.S_WALL, c + 8, c + i);
+            if (i != -6 && i != -7) w.placeFree(Balance.S_WALL, c + 12, c + i);
+        }
+        w.markFlowDirty();
+        n.x = BuildGrid.cellToWorld(c + 16);
+        n.z = 0f;
+
+        int tgx = c - 2, tgz = c;
+        in.push(new Cmd(Cmd.ORDER_AT, 0, tgz * BuildGrid.N + tgx, Balance.STANCE_HOLD));
+        w.update(0.016f);
+        float targetX = BuildGrid.cellToWorld(tgx), targetZ = BuildGrid.cellToWorld(tgz);
+        float minD = MathX.dist(n.x, n.z, targetX, targetZ);
+        for (int i = 0; i < 40 * 60; i++) {
+            w.update(1f / 60f);
+            minD = Math.min(minD, MathX.dist(n.x, n.z, targetX, targetZ));
+        }
+        assertTrue("iki duvar hattını da geçip hedefe varmalı (en yakın " + minD + ")",
+                minD < 3.5f);
+        assertTrue("duvarın içinde kalmamalı",
+                PathFinder.passable(w.grid, BuildGrid.worldToCell(n.x),
+                        BuildGrid.worldToCell(n.z)));
     }
 }
