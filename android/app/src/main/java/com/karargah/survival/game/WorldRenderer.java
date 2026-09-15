@@ -77,6 +77,7 @@ public class WorldRenderer {
         r.setDepthOffset(-2f, -4f);
         drawShadows(w);
         r.setDepthOffset(-3f, -6f);
+        drawPlans(w);
         if (buildMode) drawBuildOverlay(w);
         r.setDepthOffset(-4f, -8f);
         drawRangeRing(w);
@@ -411,6 +412,29 @@ public class WorldRenderer {
                     r.draw(gun, tmp, 1f, 1f, 1f, 1f, n.fireCd > 0.85f / n.def().fireRate ? 1.2f : 0f);
                 }
             }
+        }
+    }
+
+    /** İnşa planları: saydam hayalet + zeminde ilerleme çubuğu. */
+    private void drawPlans(GameWorld w) {
+        for (int i = 0; i < w.plans.size(); i++) {
+            BuildPlan p = w.plans.get(i);
+            if (!p.alive || !visible(w, p.x, p.z, 3f)) continue;
+            Mesh ghost = p.type == Balance.S_WALL
+                    ? models.wallMesh[1][w.wallMaskAt(p.gx, p.gz)]
+                    : models.structBase[p.type][1];
+            float grow = 0.35f + 0.65f * MathX.clamp(p.progress, 0f, 1f);
+            M4.trs(model, p.x, 0f, p.z, p.type == Balance.S_WALL ? 0f : p.rotation * MathX.PI * 0.5f,
+                    1f, grow, 1f);
+            float warn = p.waiting ? 1f : 0f;
+            r.draw(ghost, model, 0.5f + warn * 0.8f, 1.1f - warn * 0.6f, 1.4f - warn * 0.8f,
+                    0.42f, 0.4f);
+
+            // zeminde ilerleme çubuğu
+            float prog = MathX.clamp(p.progress, 0.02f, 1f);
+            M4.trs(model, p.x - (1f - prog) * (Balance.CELL - 0.3f) * 0.5f, 0.06f, p.z, 0f,
+                    prog * 0.92f, 1f, 0.16f);
+            r.draw(models.unitCell, model, 0.35f, 1f, 0.7f, 0.85f, 0.7f);
         }
     }
 

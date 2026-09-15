@@ -395,16 +395,32 @@ public final class Balance {
         public final float damage;
         public final float fireRate;
         public final float range;
-        public final float work;        // tamir/iyileştirme gücü (saniyede)
+        public final float work;        // temel iş gücü (saniyede)
         public final int suit;
         public final int accent;
         public final int weapon;        // taşıdığı silah modeli
+        /** Görev verimleri: onarım, inşa, iyileştirme, toplama, dövüş. */
+        public final float repairMul, buildMul, healMul, gatherMul, fightMul;
 
         NpcDef(int id, String name, String desc, int hire, float hp, float speed, float damage,
-               float fireRate, float range, float work, int suit, int accent, int weapon) {
+               float fireRate, float range, float work, int suit, int accent, int weapon,
+               float repairMul, float buildMul, float healMul, float gatherMul, float fightMul) {
             this.id = id; this.name = name; this.desc = desc; this.hire = hire; this.hp = hp;
             this.speed = speed; this.damage = damage; this.fireRate = fireRate; this.range = range;
             this.work = work; this.suit = suit; this.accent = accent; this.weapon = weapon;
+            this.repairMul = repairMul; this.buildMul = buildMul; this.healMul = healMul;
+            this.gatherMul = gatherMul; this.fightMul = fightMul;
+        }
+
+        /** Belirli bir görevdeki verim çarpanı. */
+        public float mulFor(int duty) {
+            switch (duty) {
+                case DUTY_REPAIR: return repairMul;
+                case DUTY_BUILD: return buildMul;
+                case DUTY_HEAL: return healMul;
+                case DUTY_GATHER: return gatherMul;
+                default: return fightMul;
+            }
         }
 
         public float hpAt(int level) {
@@ -421,23 +437,63 @@ public final class Balance {
     }
 
     public static final NpcDef[] NPCS = new NpcDef[]{
+            //        rol            ad          açıklama (kısaltıldı)
             new NpcDef(NPC_GUARD, "Muhafız",
-                    "Tüfekle savaşır, hattı tutar. Saldırı emirleri için en uygunu.",
-                    180, 150f, 5.9f, 15f, 3.4f, 18f, 0f, 0x3E4A33, 0x8BC34A, W_RIFLE),
+                    "Dövüşte en iyisi. Onarım ve inşaatı da yapar ama yavaş.",
+                    180, 150f, 5.9f, 15f, 3.4f, 18f, 7f, 0x3E4A33, 0x8BC34A, W_RIFLE,
+                    0.55f, 0.5f, 0.3f, 0.8f, 1.0f),
             new NpcDef(NPC_ENGINEER, "Mühendis",
-                    "Dalga sırasında bile hasarlı yapıları onarır, kuleleri ayakta tutar.",
-                    200, 130f, 5.6f, 8f, 2.2f, 12f, 16f, 0x4E5B66, 0xFFB74D, W_PISTOL),
+                    "İnşaat ve onarımda en iyisi; dalga sırasında bile çalışır.",
+                    200, 130f, 5.6f, 8f, 2.2f, 12f, 16f, 0x4E5B66, 0xFFB74D, W_PISTOL,
+                    1.0f, 1.0f, 0.35f, 0.9f, 0.55f),
             new NpcDef(NPC_SCAVENGER, "Toplayıcı",
-                    "Yere düşen hurdayı toplar ve sana getirir. Hızlıdır.",
-                    150, 110f, 7.2f, 9f, 3.0f, 13f, 0f, 0x5D4037, 0xFFD54F, W_SMG),
+                    "Ganimet toplamada en hızlısı; hafif iş ve dövüş de yapar.",
+                    150, 110f, 7.2f, 9f, 3.0f, 13f, 9f, 0x5D4037, 0xFFD54F, W_SMG,
+                    0.5f, 0.6f, 0.3f, 1.5f, 0.7f),
             new NpcDef(NPC_MEDIC, "Sağlıkçı",
-                    "Seni ve yaralı yoldaşları iyileştirir, düşenleri kaldırır.",
-                    220, 125f, 6.2f, 7f, 2.4f, 12f, 11f, 0x37474F, 0xE57373, W_PISTOL)
+                    "İyileştirmede en iyisi, düşen yoldaşı hızlı kaldırır.",
+                    220, 125f, 6.2f, 7f, 2.4f, 12f, 12f, 0x37474F, 0xE57373, W_PISTOL,
+                    0.45f, 0.45f, 1.0f, 0.9f, 0.6f)
     };
 
     public static NpcDef npc(int id) {
         return NPCS[MathX.clampI(id, 0, NPCS.length - 1)];
     }
+
+    // Duruş: yoldaşın nerede duracağını belirler (tek seçim).
+    public static final int STANCE_FOLLOW = 0;
+    public static final int STANCE_HOLD = 1;
+    public static final int STANCE_DEFEND = 2;
+    public static final int STANCE_ATTACK = 3;
+    public static final int STANCE_RETREAT = 4;
+    public static final int STANCE_COUNT = 5;
+    public static final String[] STANCE_NAMES = {
+            "Takip et", "Burayı tut", "Reaktörü koru", "Bölgeye saldır", "Geri çekil"};
+    public static final String[] STANCE_SHORT = {"TAKİP", "TUT", "KORU", "SALDIR", "ÇEKİL"};
+
+    // Görevler: bir yoldaşa aynı anda birden fazlası verilebilir (bit maskesi).
+    public static final int DUTY_FIGHT = 1;
+    public static final int DUTY_REPAIR = 2;
+    public static final int DUTY_BUILD = 4;
+    public static final int DUTY_GATHER = 8;
+    public static final int DUTY_HEAL = 16;
+    public static final int[] DUTY_BITS = {DUTY_FIGHT, DUTY_REPAIR, DUTY_BUILD, DUTY_GATHER, DUTY_HEAL};
+    public static final String[] DUTY_NAMES = {"Savaş", "Onar", "İnşa et", "Ganimet topla", "İyileştir"};
+    public static final String[] DUTY_SHORT = {"SAVAŞ", "ONAR", "İNŞA", "TOPLA", "İYİLEŞ"};
+    public static final String[] DUTY_LETTER = {"S", "O", "İ", "T", "+"};
+
+    /** Rolün açılışta gelen görevleri. */
+    public static int defaultDuties(int role) {
+        switch (role) {
+            case NPC_ENGINEER: return DUTY_REPAIR | DUTY_BUILD | DUTY_FIGHT;
+            case NPC_SCAVENGER: return DUTY_GATHER | DUTY_FIGHT;
+            case NPC_MEDIC: return DUTY_HEAL | DUTY_FIGHT;
+            default: return DUTY_FIGHT;
+        }
+    }
+
+    /** İnşaat hızı: saniyede tamamlanan oran (iş gücüne göre). */
+    public static final float BUILD_WORK_PER_SEC = 0.055f;
 
     /** Kışla seviyesi başına yoldaş hakkı. */
     public static final int NPC_PER_BARRACKS_LEVEL = 1;

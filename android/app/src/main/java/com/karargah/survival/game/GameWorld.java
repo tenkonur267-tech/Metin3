@@ -29,6 +29,11 @@ public class GameWorld {
     public final ArrayList<FloatingText> texts = new ArrayList<>();
     public final ArrayList<Pickup> pickups = new ArrayList<>();
     public final ArrayList<Npc> npcs = new ArrayList<>();
+    public final ArrayList<BuildPlan> plans = new ArrayList<>();
+    /** Yıkılan yapılar için kendiliğinden plan açılsın mı? */
+    public boolean autoRebuild = true;
+    /** Ortak kasaya kimin ne kadar kattığı (arayüzde gösterilir). */
+    public int scrapFromNpcs, scrapFromPlayer;
     public final PathFinder pathFinder = new PathFinder();
 
     private final ArrayList<Zombie> zombiePool = new ArrayList<>();
@@ -82,6 +87,9 @@ public class GameWorld {
         texts.clear();
         pickups.clear();
         npcs.clear();
+        plans.clear();
+        scrapFromNpcs = 0;
+        scrapFromPlayer = 0;
         grid.clearAll();
         particles.clear();
         player.resetForNewGame();
@@ -217,6 +225,7 @@ public class GameWorld {
         updateStructures(dt);
         updateProjectiles(dt);
         updatePickups(dt);
+        updatePlans(dt);
         updateEffects(dt);
         particles.update(dt);
         waves.update(this, dt);
@@ -273,9 +282,19 @@ public class GameWorld {
                 case Cmd.REPAIR_ALL: repairAll(); break;
                 case Cmd.ROTATE: rotateSelection(); break;
                 case Cmd.RECRUIT: recruitNpc(c.a); break;
-                case Cmd.ORDER: orderNpc(c.a, c.b, 0f, 0f); break;
-                case Cmd.ORDER_AT: orderNpcAt(c.a, c.b, c.c); break;
-                case Cmd.ORDER_ALL: orderAll(c.a, 0f, 0f); break;
+                case Cmd.ORDER: setStance(c.a, c.b, 0f, 0f); break;
+                case Cmd.ORDER_AT: stanceAt(c.a, c.b, c.c); break;
+                case Cmd.ORDER_ALL: setStance(-1, c.a, 0f, 0f); break;
+                case Cmd.DUTY: toggleDuty(c.a, c.b); break;
+                case Cmd.PLAN: addPlan(c.a, c.b, c.c, false); break;
+                case Cmd.CANCEL_PLAN: cancelPlanAt(c.b, c.c); break;
+                case Cmd.CANCEL_ALL_PLANS: cancelAllPlans(); break;
+                case Cmd.TOGGLE_AUTOBUILD:
+                    autoRebuild = !autoRebuild;
+                    message(autoRebuild
+                            ? "Otomatik yeniden inşa açık: yıkılan yapılar için plan açılır"
+                            : "Otomatik yeniden inşa kapalı", 2.2f);
+                    break;
                 case Cmd.CLEAR_ADVICE: advisor.tipTimer = 0f; break;
                 case Cmd.START_WAVE: waves.skipPrepare(); break;
                 case Cmd.SKILL_UP: doSkillUp(c.a); break;
@@ -352,6 +371,178 @@ public class GameWorld {
         if (z.isBoss()) {
             camera.addShake(0.7f);
             particles.explosion(z.x, z.centerY(), z.z, 3.5f);
+        }
+    }
+
+    // ---- ortak kasa -----------------------------------------------------
+    // Hurda ve çekirdek tek bir ortak kasada tutulur: oyuncunun topladığı da,
+    // yoldaşların topladığı da aynı kasaya girer, inşaat/geliştirme hepsi
+    // oradan ödenir.
+
+    public int scrap() {
+        return player.scrap;
+    }
+
+    public int cores() {
+        return player.cores;
+    }
+
+    public boolean canAfford(int amount) {
+        return player.scrap >= amount;
+    }
+
+    public boolean spendScrap(int amount) {
+        if (player.scrap < amount) return false;
+        player.scrap -= amount;
+        return true;
+    }
+
+    public void addToTreasury(int scrap, int cores, boolean fromNpc) {
+        player.scrap += scrap;
+        player.cores += cores;
+        scrapEarned += scrap;
+        if (fromNpc) scrapFromNpcs += scrap;
+        else scrapFromPlayer += scrap;
+    }
+
+    // ---- inşa planları --------------------------------------------------
+
+    public BuildPlan planAt(int gx, int gz) {
+        for (int i = 0; i < plans.size(); i++) {
+            BuildPlan p = plans.get(i);
+            if (p.alive && p.gx == gx && p.gz == gz) return p;
+        }
+        return null;
+    }
+
+    /** @return plan eklendiyse true. */
+    public boolean addPlan(int type, int gx, int gz, boolean auto) {
+        if (grid.canPlace(gx, gz) != BuildGrid.OK) return false;
+        if (planAt(gx, gz) != null) return false;
+        if (plans.size() >= 60) return false;
+        Balance.StructDef d = Balance.struct(type);
+        if (waves.wave < d.unlockWave) {
+            if (!auto) message(d.name + " " + d.unlockWave + ". dalgada açılır", 2f);
+            return false;
+        }
+        plans.add(new BuildPlan(type, gx, gz, input.buildRotation, auto));
+        if (!auto) {
+            audio.playClick();
+            addText(BuildGrid.cellToWorld(gx), 1.4f, BuildGrid.cellToWorld(gz),
+                    "plan", 0x81D4FA, 0.9f, 0.8f);
+        }
+        return true;
+    }
+
+    public void cancelPlanAt(int gx, int gz) {
+        BuildPlan p = planAt(gx, gz);
+        if (p == null) return;
+        if (p.paid) {
+            int refund = Math.round(player.buildCost(p.def().cost) * 0.8f);
+            addToTreasury(refund, 0, false);
+        }
+        p.alive = false;
+        plans.remove(p);
+        audio.playSell();
+    }
+
+    public void cancelAllPlans() {
+        int n = plans.size();
+        for (int i = plans.size() - 1; i >= 0; i--) {
+            cancelPlanAt(plans.get(i).gx, plans.get(i).gz);
+        }
+        if (n > 0) message(n + " plan iptal edildi", 1.6f);
+    }
+
+    /** İnşa görevli yoldaş için en uygun plan. */
+    public BuildPlan nearestPlan(float x, float z, float range) {
+        BuildPlan best = null;
+        float bestD = range * range;
+        for (int i = 0; i < plans.size(); i++) {
+            BuildPlan p = plans.get(i);
+            if (!p.alive) continue;
+            float d = MathX.dist2(x, z, p.x, p.z);
+            if (d < bestD) {
+                bestD = d;
+                best = p;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Yoldaş plana çalışır. Hurda inşaat başladığında ortak kasadan düşülür.
+     * @return true ise iş ilerledi.
+     */
+    public boolean workOnPlan(Npc n, BuildPlan p, float dt, float workRate) {
+        if (!p.alive) return false;
+        if (!p.paid) {
+            int cost = player.buildCost(p.def().cost);
+            if (!spendScrap(cost)) {
+                if (!p.waiting) {
+                    p.waiting = true;
+                    npcSays(n, "Kasada hurda yok, " + p.def().name + " bekliyor.");
+                }
+                return false;
+            }
+            p.paid = true;
+            p.waiting = false;
+            addText(p.x, 1.5f, p.z, "-" + cost, 0xFFAB91, 0.8f, 0.8f);
+        }
+        p.progress += workRate * dt;
+        if (MathX.chance(dt * 6f)) {
+            particles.sparks(p.x + MathX.rnd(-0.5f, 0.5f), 0.9f + MathX.rnd(0f, 0.6f),
+                    p.z + MathX.rnd(-0.5f, 0.5f), 3, 0xFFD54F);
+        }
+        if (p.progress >= 1f) {
+            completePlan(n, p);
+        }
+        return true;
+    }
+
+    private void completePlan(Npc n, BuildPlan p) {
+        p.alive = false;
+        plans.remove(p);
+        if (grid.canPlace(p.gx, p.gz) != BuildGrid.OK) return;
+        Structure s = new Structure(p.type, 1, p.gx, p.gz, player.structHpBonus(), p.rotation);
+        structures.add(s);
+        grid.set(p.gx, p.gz, s);
+        refreshWallsAround(p.gx, p.gz);
+        flowDirty = true;
+        structuresBuilt++;
+        particles.dust(p.x, 0.1f, p.z, 12);
+        audio.playBuild();
+        addText(p.x, 1.8f, p.z, p.def().name + " kuruldu", 0x9CCC65, 1.4f, 0.9f);
+        if (n != null) n.built++;
+    }
+
+    /** Yıkılan yapı için kendiliğinden yeniden inşa planı açar. */
+    private void queueRebuild(Structure s) {
+        if (!autoRebuild || s.type == Balance.S_CORE) return;
+        // İnşa görevli yoldaş yoksa plan açmanın anlamı yok.
+        boolean hasBuilder = false;
+        for (int i = 0; i < npcs.size(); i++) {
+            if (npcs.get(i).hasDuty(Balance.DUTY_BUILD)) {
+                hasBuilder = true;
+                break;
+            }
+        }
+        if (!hasBuilder) return;
+        addPlan(s.type, s.gx, s.gz, true);
+    }
+
+    private void updatePlans(float dt) {
+        for (int i = plans.size() - 1; i >= 0; i--) {
+            BuildPlan p = plans.get(i);
+            if (!p.alive) {
+                plans.remove(i);
+                continue;
+            }
+            // Üstüne yapı kurulduysa plan geçersiz olur.
+            if (grid.at(p.gx, p.gz) != null) {
+                p.alive = false;
+                plans.remove(i);
+            }
         }
     }
 
@@ -438,32 +629,61 @@ public class GameWorld {
         npcSays(n, "Emrindeyim.");
     }
 
-    public void orderNpc(int npcIndex, int order, float ox, float oz) {
-        if (npcIndex < 0 || npcIndex >= npcs.size()) return;
+    /** Duruş ata. npcIndex < 0 ise tüm ekip. */
+    public void setStance(int npcIndex, int stance, float ox, float oz) {
+        if (npcIndex < 0) {
+            for (int i = 0; i < npcs.size(); i++) npcs.get(i).setStance(stance, ox, oz);
+            if (!npcs.isEmpty()) {
+                audio.playClick();
+                message("Tüm ekip: " + Balance.STANCE_NAMES[stance], 1.8f);
+            }
+            return;
+        }
+        if (npcIndex >= npcs.size()) return;
         Npc n = npcs.get(npcIndex);
-        n.setOrder(order, ox, oz);
+        n.setStance(stance, ox, oz);
         audio.playClick();
-        npcSays(n, orderReply(n, order));
+        npcSays(n, stanceReply(stance));
     }
 
-    public void orderAll(int order, float ox, float oz) {
-        for (int i = 0; i < npcs.size(); i++) {
-            npcs.get(i).setOrder(order, ox, oz);
+    /** Görev ekle/çıkar. npcIndex < 0 ise tüm ekip. */
+    public void toggleDuty(int npcIndex, int dutyBit) {
+        if (npcIndex < 0) {
+            boolean anyOff = false;
+            for (int i = 0; i < npcs.size(); i++) {
+                if (!npcs.get(i).hasDuty(dutyBit)) anyOff = true;
+            }
+            for (int i = 0; i < npcs.size(); i++) {
+                Npc n = npcs.get(i);
+                if (anyOff) n.duties |= dutyBit;
+                else n.duties &= ~dutyBit;
+            }
+            if (!npcs.isEmpty()) {
+                audio.playClick();
+                message("Tüm ekip · " + dutyName(dutyBit) + (anyOff ? ": açık" : ": kapalı"), 1.6f);
+            }
+            return;
         }
-        if (!npcs.isEmpty()) {
-            audio.playClick();
-            message("Tüm ekip: " + Npc.ORDER_NAMES[order], 1.8f);
-        }
+        if (npcIndex >= npcs.size()) return;
+        Npc n = npcs.get(npcIndex);
+        n.toggleDuty(dutyBit);
+        audio.playClick();
+        npcSays(n, dutyName(dutyBit) + (n.hasDuty(dutyBit) ? " görevini aldım." : " görevini bıraktım."));
     }
 
-    private String orderReply(Npc n, int order) {
-        switch (order) {
-            case Npc.ORDER_HOLD: return "Burayı tutuyorum.";
-            case Npc.ORDER_DEFEND_CORE: return "Reaktörün başındayım.";
-            case Npc.ORDER_GATHER: return "Ganimeti topluyorum.";
-            case Npc.ORDER_REPAIR: return "Hasarlı yapılara bakıyorum.";
-            case Npc.ORDER_ATTACK: return "Saldırıya geçiyorum!";
-            case Npc.ORDER_RETREAT: return "Geri çekiliyorum.";
+    private static String dutyName(int dutyBit) {
+        for (int i = 0; i < Balance.DUTY_BITS.length; i++) {
+            if (Balance.DUTY_BITS[i] == dutyBit) return Balance.DUTY_NAMES[i];
+        }
+        return "Görev";
+    }
+
+    private String stanceReply(int stance) {
+        switch (stance) {
+            case Balance.STANCE_HOLD: return "Burayı tutuyorum.";
+            case Balance.STANCE_DEFEND: return "Reaktörün başındayım.";
+            case Balance.STANCE_ATTACK: return "Saldırıya geçiyorum!";
+            case Balance.STANCE_RETREAT: return "Geri çekiliyorum.";
             default: return "Peşindeyim.";
         }
     }
@@ -549,10 +769,10 @@ public class GameWorld {
         return best;
     }
 
-    private final float[] allyPos = new float[2];
+    private final float[] allyPos = new float[3];
 
-    /** Sağlıkçı için: menzildeki en yaralı dost (oyuncu ya da yoldaş). */
-    public float[] nearestHurtAlly(float x, float z, float range) {
+    /** İyileştirme görevi için: menzildeki en yaralı dost ([x, z, ihtiyaç]). */
+    public float[] nearestHurtAllyNeed(float x, float z, float range) {
         float bestNeed = 0.12f;
         boolean found = false;
         if (player.alive && player.hp < player.maxHp * 0.92f
@@ -560,6 +780,7 @@ public class GameWorld {
             bestNeed = 1f - player.hp / player.maxHp;
             allyPos[0] = player.x;
             allyPos[1] = player.z;
+            allyPos[2] = bestNeed;
             found = true;
         }
         for (int i = 0; i < npcs.size(); i++) {
@@ -570,6 +791,7 @@ public class GameWorld {
                 bestNeed = need;
                 allyPos[0] = o.x;
                 allyPos[1] = o.z;
+                allyPos[2] = Math.min(1f, need);
                 found = true;
             }
         }
@@ -629,12 +851,11 @@ public class GameWorld {
         if (!p.alive) return;
         p.alive = false;
         if (p.kind == Pickup.CORE) {
-            player.cores += p.amount;
+            addToTreasury(0, p.amount, !byPlayer);
             addText(p.x, 1.4f, p.z, "+" + p.amount + " çekirdek", 0x4DD0E1, 1.6f, 1.2f);
             particles.sparks(p.x, 0.6f, p.z, 10, 0x4DD0E1);
         } else {
-            player.scrap += p.amount;
-            scrapEarned += p.amount;
+            addToTreasury(p.amount, 0, !byPlayer);
             addText(p.x, 1.2f, p.z, "+" + p.amount, 0xFFD54F, 0.85f, 0.85f);
             particles.sparks(p.x, 0.5f, p.z, 5, 0xFFD54F);
         }
@@ -1227,6 +1448,7 @@ public class GameWorld {
             return;
         }
         structuresLost++;
+        queueRebuild(s);
         particles.explosion(s.x, 0.8f, s.z, 1.6f);
         particles.smoke(s.x, 0.6f, s.z, 8, 0x555048, 0.9f);
         audio.playStructDown();
@@ -1248,6 +1470,10 @@ public class GameWorld {
         int code = grid.canPlace(gx, gz);
         if (code != BuildGrid.OK) {
             message(BuildGrid.placeError(code), 1.4f);
+            return;
+        }
+        if (planAt(gx, gz) != null) {
+            message("Burada bir inşa planı var", 1.4f);
             return;
         }
         int cost = player.buildCost(d.cost);
@@ -1296,16 +1522,11 @@ public class GameWorld {
         message("Yerleştirme yönü: " + (input.buildRotation * 90) + "°", 1.2f);
     }
 
-    /** Konumlu emir: hücre koordinatı dünya konumuna çevrilir. */
-    public void orderNpcAt(int npcIndex, int cellPacked, int order) {
+    /** Konumlu duruş emri: hücre koordinatı dünya konumuna çevrilir. */
+    public void stanceAt(int npcIndex, int cellPacked, int stance) {
         int gx = cellPacked % BuildGrid.N;
         int gz = cellPacked / BuildGrid.N;
-        float wx = BuildGrid.cellToWorld(gx), wz = BuildGrid.cellToWorld(gz);
-        if (npcIndex < 0) {
-            orderAll(order, wx, wz);
-        } else {
-            orderNpc(npcIndex, order, wx, wz);
-        }
+        setStance(npcIndex, stance, BuildGrid.cellToWorld(gx), BuildGrid.cellToWorld(gz));
     }
 
     public void selectAt(int gx, int gz) {

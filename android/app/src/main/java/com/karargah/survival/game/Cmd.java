@@ -25,6 +25,11 @@ public class Cmd {
     public static final int ORDER_AT = 21;
     public static final int ORDER_ALL = 22;
     public static final int CLEAR_ADVICE = 23;
+    public static final int DUTY = 24;
+    public static final int PLAN = 25;
+    public static final int CANCEL_PLAN = 26;
+    public static final int CANCEL_ALL_PLANS = 27;
+    public static final int TOGGLE_AUTOBUILD = 28;
 
     public final int op;
     public final int a, b, c;

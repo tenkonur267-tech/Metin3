@@ -90,7 +90,7 @@ public class SquadTest {
         w.markFlowDirty();
 
         int tgx = BuildGrid.worldToCell(6f), tgz = BuildGrid.worldToCell(0f);
-        in.push(new Cmd(Cmd.ORDER_AT, 0, tgz * BuildGrid.N + tgx, Npc.ORDER_HOLD));
+        in.push(new Cmd(Cmd.ORDER_AT, 0, tgz * BuildGrid.N + tgx, Balance.STANCE_HOLD));
         w.update(0.016f);
         run(w, 22f);
 
@@ -140,8 +140,10 @@ public class SquadTest {
         GameWorld w = world(in);
         Npc n = hire(w, in, Balance.NPC_SCAVENGER);
         int before = w.player.scrap;
+        w.player.x = n.x;
+        w.player.z = n.z;
         w.dropLoot(n.x + 9f, n.z + 4f, 60, 0, 2);
-        in.push(new Cmd(Cmd.ORDER, 0, Npc.ORDER_GATHER, 0));
+        in.push(new Cmd(Cmd.ORDER, 0, Balance.STANCE_FOLLOW, 0));
         run(w, 14f);
         assertTrue("toplayıcı ganimeti toplamalı", w.player.scrap > before);
         assertTrue("topladığı sayılmalı", n.collected > 0);
@@ -155,8 +157,10 @@ public class SquadTest {
         Structure s = w.placeFree(Balance.S_WALL, BuildGrid.N / 2 + 8, BuildGrid.N / 2);
         assertNotNull(s);
         s.hp = s.maxHp * 0.3f;
+        w.player.x = s.x;
+        w.player.z = s.z;
         float hpBefore = s.hp;
-        in.push(new Cmd(Cmd.ORDER, 0, Npc.ORDER_REPAIR, 0));
+        in.push(new Cmd(Cmd.ORDER, 0, Balance.STANCE_FOLLOW, 0));
         run(w, 14f);
         assertTrue("mühendis hasarlı yapıyı onarmalı (" + hpBefore + " -> " + s.hp + ")",
                 s.hp > hpBefore + 10f);
@@ -209,5 +213,125 @@ public class SquadTest {
         w.player.aimYaw = MathX.PI * 0.5f;
         w.player.muzzleWorld(m);
         assertTrue("dönünce namlu da dönmeli", m[0] > 0.35f && Math.abs(m[2]) < 0.6f);
+    }
+
+    // ---- çok görevlilik, inşaatçı ve ortak kasa ----
+
+    @Test
+    public void tekYoldasaBirdenCokGorevVerilebilir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        assertTrue("muhafız varsayılan olarak savaşır", n.hasDuty(Balance.DUTY_FIGHT));
+
+        in.push(new Cmd(Cmd.DUTY, 0, Balance.DUTY_REPAIR, 0));
+        in.push(new Cmd(Cmd.DUTY, 0, Balance.DUTY_GATHER, 0));
+        w.update(0.016f);
+        assertTrue(n.hasDuty(Balance.DUTY_FIGHT));
+        assertTrue(n.hasDuty(Balance.DUTY_REPAIR));
+        assertTrue(n.hasDuty(Balance.DUTY_GATHER));
+        assertTrue("üç görev birden görünmeli", n.dutyLetters().length() >= 5);
+
+        // hem onarım hem toplama işini sırayla yapmalı
+        w.player.x = n.x;
+        w.player.z = n.z;
+        Structure s = w.placeFree(Balance.S_WALL, BuildGrid.worldToCell(n.x + 4f),
+                BuildGrid.worldToCell(n.z));
+        assertNotNull(s);
+        s.hp = s.maxHp * 0.25f;
+        float hpBefore = s.hp;
+        w.dropLoot(n.x - 4f, n.z + 2f, 40, 0, 1);
+        run(w, 18f);
+        assertTrue("onarım yapılmalı", s.hp > hpBefore + 5f);
+        assertTrue("ganimet de toplanmalı", n.collected > 0);
+
+        in.push(new Cmd(Cmd.DUTY, 0, Balance.DUTY_REPAIR, 0));
+        w.update(0.016f);
+        assertTrue("görev kapatılabilmeli", !n.hasDuty(Balance.DUTY_REPAIR));
+    }
+
+    @Test
+    public void insaatciPlaniKurarVeKasadanOder() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        assertTrue("mühendis inşa görevini taşır", n.hasDuty(Balance.DUTY_BUILD));
+
+        int gx = BuildGrid.worldToCell(n.x + 5f), gz = BuildGrid.worldToCell(n.z + 2f);
+        w.player.scrap = 400;
+        int before = w.scrap();
+        in.push(new Cmd(Cmd.PLAN, Balance.S_WALL, gx, gz));
+        w.update(0.016f);
+        assertEquals("plan açılmalı", 1, w.plans.size());
+        assertEquals("plan açarken hurda düşmemeli", before, w.scrap());
+
+        run(w, 30f);
+        assertNotNull("yoldaş planı kurmalı", w.grid.at(gx, gz));
+        assertTrue("plan listesi boşalmalı", w.plans.isEmpty());
+        assertTrue("hurda ortak kasadan düşmeli", w.scrap() < before);
+        assertTrue("inşa sayacı işlemeli", n.built > 0);
+    }
+
+    @Test
+    public void kasaYetmezseInsaBekler() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        w.player.scrap = 0;
+        int gx = BuildGrid.worldToCell(n.x + 4f), gz = BuildGrid.worldToCell(n.z + 2f);
+        in.push(new Cmd(Cmd.PLAN, Balance.S_WALL, gx, gz));
+        w.update(0.016f);
+        run(w, 10f);
+        assertTrue("kasa boşken kurulmamalı", w.grid.at(gx, gz) == null);
+        assertEquals("plan beklemede kalmalı", 1, w.plans.size());
+
+        w.addToTreasury(500, 0, true);
+        run(w, 25f);
+        assertNotNull("kasa dolunca kurulmalı", w.grid.at(gx, gz));
+    }
+
+    @Test
+    public void yikilanYapiIcinOtomatikPlanAcilir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        hire(w, in, Balance.NPC_ENGINEER);
+        Structure s = w.placeFree(Balance.S_MG, BuildGrid.N / 2 + 7, BuildGrid.N / 2 + 1);
+        assertNotNull(s);
+        int gx = s.gx, gz = s.gz;
+        s.damage(999999f);
+        w.onStructureDestroyed(s);
+        assertTrue("yıkılan yapı için plan açılmalı", w.planAt(gx, gz) != null);
+        assertTrue("plan otomatik işaretlenmeli", w.planAt(gx, gz).auto);
+
+        w.player.scrap = 3000;
+        run(w, 40f);
+        assertNotNull("ekip yıkılan yapıyı yeniden dikmeli", w.grid.at(gx, gz));
+    }
+
+    @Test
+    public void ortakKasaPaylasilir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        w.player.scrap = 100;
+        w.addToTreasury(250, 2, true);
+        assertEquals(350, w.scrap());
+        assertEquals(52, w.cores());
+        assertTrue("ekibin katkısı sayılmalı", w.scrapFromNpcs >= 250);
+        assertTrue(w.spendScrap(300));
+        assertEquals(50, w.scrap());
+        assertTrue("kasada olmayan para harcanamaz", !w.spendScrap(999));
+    }
+
+    @Test
+    public void planaDokununcaIptalEdilir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        int gx = BuildGrid.N / 2 + 9, gz = BuildGrid.N / 2 + 2;
+        in.push(new Cmd(Cmd.PLAN, Balance.S_WALL, gx, gz));
+        w.update(0.016f);
+        assertEquals(1, w.plans.size());
+        in.push(new Cmd(Cmd.CANCEL_PLAN, 0, gx, gz));
+        w.update(0.016f);
+        assertTrue("plan iptal edilmeli", w.plans.isEmpty());
     }
 }

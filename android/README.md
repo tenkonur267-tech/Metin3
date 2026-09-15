@@ -30,13 +30,24 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
 - **Akıllı yol bulma:** zombiler Dijkstra tabanlı akış alanıyla en ucuz yolu
   arar; yol kapalıysa en zayıf duvarı kırmayı seçer. Yani labirent kurabilirsin.
 - **Yoldaş NPC'ler:** Kışla kurup dört rolde yoldaş alırsın — muhafız, mühendis,
-  toplayıcı, sağlıkçı. EKİP panelinden emir verirsin (takip et, burayı tut,
-  reaktörü koru, ganimet topla, yapıları onar, bölgeye saldır, geri çekil);
-  TUT/SALDIR için haritada nokta seçersin. Emir dışında da akıllıdırlar:
-  A* ile duvarları dolaşır (takılmazlar), ateş hattı kapalıysa ateş etmez,
-  canları azalınca kendiliğinden geri çekilip iyileşir, rollerinin işini
-  kendiliğinden yapar ve üssün durumunu değerlendirip öneride bulunurlar
-  ("enerji açığın var", "batı taraf savunmasız", "reaktör ağır hasarlı"...).
+  toplayıcı, sağlıkçı. EKİP panelinde iki ayrı şey ayarlanır:
+  **duruş** (takip et / burayı tut / reaktörü koru / bölgeye saldır / geri çekil)
+  ve **görevler**. Görevler bir liste değil bir küme: tek bir yoldaşa aynı anda
+  savaş + onar + inşa + topla + iyileştir verebilirsin. Hangisinin daha acil
+  olduğuna kendisi karar verir, uzun süre aynı işte kalırsa sırayı diğerine
+  bırakır. Her rolün her görevde ayrı verimi vardır (mühendis inşada %100,
+  muhafız %50 gibi) ve panelde gösterilir.
+- **İnşaatçı yoldaşlar:** İnşa modunda PLAN düğmesini açıp zemine dokununca
+  şantiye bırakırsın; İNŞA görevi olan yoldaş gider, ortak kasadan ödeyip
+  yapıyı kurar (ilerleme zeminde çubukla görünür). OTO açıkken yıkılan her
+  yapı için kendiliğinden plan açılır — ekip üssü sen uğraşmadan yeniden diker.
+- **Ortak kasa:** Hurda ve çekirdek tek kasada. Senin topladığın, toplayıcının
+  getirdiği, dalga ödülleri hep oraya girer; inşaat, geliştirme ve yoldaş
+  ücretleri hep oradan ödenir. Üst çubukta ekibin katkısı ayrıca gösterilir.
+- Emir dışında da akıllıdırlar: A* ile duvarları dolaşır (takılmazlar), ateş
+  hattı kapalıysa ateş etmez, canları azalınca kendiliğinden geri çekilip
+  iyileşir ve üssün durumunu değerlendirip öneride bulunurlar ("enerji açığın
+  var", "batı taraf savunmasız", "şantiyeler bekliyor, kimsede inşa görevi yok").
 - **Yere düşen ganimet:** Ölen zombiler hurda (boss ayrıca enerji çekirdeği)
   düşürür. Yaklaşınca kendiliğinden çekilir, toplayıcı yoldaş senin için
   toplar, dalga bitince sahada kalanlar otomatik toplanır.
@@ -107,7 +118,8 @@ android/app/src/main/java/com/karargah/survival/
 │   ├── Zombie.java / Player.java / Structure.java / Projectile.java
 │   ├── FlowField.java       zombiler için Dijkstra akış alanı
 │   ├── PathFinder.java      yoldaşlar için A* (duvarları dolaşır)
-│   ├── Npc.java             yoldaş yapay zekâsı, emirler, rol işleri
+│   ├── Npc.java             yoldaş yapay zekâsı: duruş + çoklu görev, iş seçimi
+│   ├── BuildPlan.java       şantiye (yoldaşların kurduğu inşa planı)
 │   ├── Advisor.java         üssü değerlendirip öneri veren yoldaş aklı
 │   ├── Pickup.java          yere düşen hurda/çekirdek
 │   ├── WaveManager.java     dalga kadroları ve hazırlık süresi

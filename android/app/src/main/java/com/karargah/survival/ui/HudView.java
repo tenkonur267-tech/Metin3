@@ -71,6 +71,10 @@ public class HudView extends View {
     private static final int A_SELECT_NPC = 33;
     private static final int A_ORDER = 34;
     private static final int A_RECRUIT = 35;
+    private static final int A_DUTY = 36;
+    private static final int A_PLAN_MODE = 37;
+    private static final int A_CANCEL_PLANS = 38;
+    private static final int A_AUTOBUILD = 39;
 
     public interface Listener {
         void onNewGame();
@@ -113,6 +117,8 @@ public class HudView extends View {
     private int squadSel = -1;
     /** Haritadan nokta bekleyen emir (-1 = yok). */
     private int pendingOrder = -1;
+    /** İnşa modunda plan bırakma (yoldaşlar kursun) açık mı? */
+    private boolean planMode;
 
     public HudView(Context ctx, InputState input) {
         super(ctx);
@@ -221,8 +227,12 @@ public class HudView extends View {
         // kaynaklar
         float rx = w - pad;
         ui.rect(c, rx - 250 * sc, top, rx - 58 * sc, top + 34 * sc, 10 * sc, 0xB0101613);
-        ui.labelShadow(c, "HURDA " + p.scrap, rx - 240 * sc, top + 24 * sc, 20 * sc,
+        ui.labelShadow(c, "KASA " + p.scrap, rx - 240 * sc, top + 24 * sc, 20 * sc,
                 UiKit.COL_GOLD, Paint.Align.LEFT);
+        if (!gw.npcs.isEmpty() && gw.scrapFromNpcs > 0) {
+            ui.labelShadow(c, "ekip +" + gw.scrapFromNpcs, rx - 128 * sc, top + 24 * sc,
+                    13 * sc, UiKit.COL_DIM, Paint.Align.LEFT);
+        }
         ui.rect(c, rx - 250 * sc, top + 38 * sc, rx - 58 * sc, top + 68 * sc, 10 * sc, 0xB0101613);
         ui.labelShadow(c, "ÇEKİRDEK " + p.cores, rx - 240 * sc, top + 60 * sc, 18 * sc,
                 UiKit.COL_CYAN, Paint.Align.LEFT);
@@ -347,8 +357,10 @@ public class HudView extends View {
                     outXY[0], outXY[1] - 6 * sc, 14 * sc,
                     n.downed ? UiKit.COL_DANGER : 0xFFB3E5FC, Paint.Align.CENTER);
             if (!n.downed) {
-                ui.labelShadow(c, Npc.ORDER_SHORT[n.order], outXY[0], outXY[1] + 18 * sc,
-                        12 * sc, UiKit.COL_DIM, Paint.Align.CENTER);
+                ui.labelShadow(c, Balance.STANCE_SHORT[n.stance] + " · " + n.dutyLetters(),
+                        outXY[0], outXY[1] + 18 * sc, 12 * sc,
+                        n.task != Npc.TASK_NONE ? UiKit.COL_GOLD : UiKit.COL_DIM,
+                        Paint.Align.CENTER);
             }
         }
 
@@ -445,7 +457,7 @@ public class HudView extends View {
         if (pendingOrder >= 0) {
             ui.rect(c, w * 0.5f - 210 * sc, h * 0.12f, w * 0.5f + 210 * sc, h * 0.12f + 42 * sc,
                     10 * sc, 0xCC1B2320);
-            ui.labelShadow(c, "Haritada hedef noktaya dokun — " + Npc.ORDER_NAMES[pendingOrder],
+            ui.labelShadow(c, "Haritada hedef noktaya dokun — " + Balance.STANCE_NAMES[pendingOrder],
                     w * 0.5f, h * 0.12f + 28 * sc, 20 * sc, UiKit.COL_CYAN, Paint.Align.CENTER);
         }
 
@@ -653,6 +665,20 @@ public class HudView extends View {
                     (l + r) * 0.5f, y0 + 72 * sc, 15 * sc,
                     locked ? UiKit.COL_DIM : (affordable ? UiKit.COL_GOLD : UiKit.COL_DANGER),
                     Paint.Align.CENTER);
+        }
+
+        // plan modu: yapıyı kendin kurmak yerine yoldaşlara şantiye bırak
+        int planCount = gw.plans.size();
+        ui.button(c, 14 * sc, h - 308 * sc, 100 * sc, h - 266 * sc,
+                planMode ? "PLAN ✓" : "PLAN", planMode ? "yoldaş kursun" : "kendin kur",
+                planMode ? UiKit.STYLE_PRIMARY : UiKit.STYLE_NORMAL, true, A_PLAN_MODE, 0);
+        ui.button(c, 104 * sc, h - 308 * sc, 190 * sc, h - 266 * sc,
+                gw.autoRebuild ? "OTO ✓" : "OTO", "yıkılanı dik",
+                gw.autoRebuild ? UiKit.STYLE_PRIMARY : UiKit.STYLE_GHOST, true, A_AUTOBUILD, 0);
+        if (planCount > 0) {
+            ui.button(c, 14 * sc, h - 262 * sc, 190 * sc, h - 220 * sc,
+                    "PLANLARI İPTAL", planCount + " şantiye", UiKit.STYLE_DANGER,
+                    true, A_CANCEL_PLANS, 0);
         }
 
         // döndürme: seçili yapı varsa onu, yoksa yerleştirme yönünü çevirir
@@ -972,27 +998,61 @@ public class HudView extends View {
             }
         }
 
-        // --- emirler ---
+        // --- duruş ve görevler ---
         float ox = pad + listW + 18 * sc;
         float ow = w - pad - 12 * sc - ox;
         boolean validSel = squadSel >= 0 && squadSel < gw.npcs.size();
         ui.label(c, validSel ? "EMİR: " + gw.npcs.get(squadSel).name : "TÜM EKİBE EMİR",
                 ox, pad + 74 * sc, 20 * sc, UiKit.COL_ACCENT, Paint.Align.LEFT);
-        float by = pad + 86 * sc;
-        float bw = (ow - 10 * sc) * 0.5f;
-        float bh = 46 * sc;
-        for (int i = 0; i < Npc.ORDER_COUNT; i++) {
-            float bx = ox + (i % 2) * (bw + 10 * sc);
-            float byy = by + (i / 2) * (bh + 8 * sc);
-            boolean positional = i == Npc.ORDER_HOLD || i == Npc.ORDER_ATTACK;
-            ui.button(c, bx, byy, bx + bw, byy + bh, Npc.ORDER_SHORT[i],
-                    positional ? "nokta seç" : null,
-                    i == Npc.ORDER_ATTACK ? UiKit.STYLE_DANGER : UiKit.STYLE_NORMAL,
+        float by = pad + 84 * sc;
+        float bh = 40 * sc;
+
+        ui.label(c, "DURUŞ — nerede duracak", ox, by, 15 * sc, UiKit.COL_DIM, Paint.Align.LEFT);
+        by += 8 * sc;
+        float sw = (ow - 8 * sc) / 3f;
+        for (int i = 0; i < Balance.STANCE_COUNT; i++) {
+            float bx = ox + (i % 3) * (sw + 4 * sc);
+            float byy = by + (i / 3) * (bh + 6 * sc);
+            boolean positional = i == Balance.STANCE_HOLD || i == Balance.STANCE_ATTACK;
+            boolean active = validSel ? gw.npcs.get(squadSel).stance == i : false;
+            ui.button(c, bx, byy, bx + sw - 4 * sc, byy + bh, Balance.STANCE_SHORT[i],
+                    positional ? "nokta" : null,
+                    active ? UiKit.STYLE_PRIMARY
+                            : (i == Balance.STANCE_ATTACK ? UiKit.STYLE_DANGER : UiKit.STYLE_NORMAL),
                     !gw.npcs.isEmpty(), A_ORDER, i);
         }
 
+        // Görevler: aynı anda birden fazlası açık olabilir.
+        float dy = by + 2 * (bh + 6 * sc) + 10 * sc;
+        ui.label(c, "GÖREVLER — birden fazlası aynı anda açık olabilir",
+                ox, dy, 15 * sc, UiKit.COL_DIM, Paint.Align.LEFT);
+        dy += 8 * sc;
+        float dw = (ow - 8 * sc) / 3f;
+        for (int i = 0; i < Balance.DUTY_BITS.length; i++) {
+            float bx = ox + (i % 3) * (dw + 4 * sc);
+            float byy = dy + (i / 3) * (bh + 6 * sc);
+            boolean on;
+            if (validSel) {
+                on = gw.npcs.get(squadSel).hasDuty(Balance.DUTY_BITS[i]);
+            } else {
+                on = false;
+                for (int k = 0; k < gw.npcs.size(); k++) {
+                    if (gw.npcs.get(k).hasDuty(Balance.DUTY_BITS[i])) on = true;
+                }
+            }
+            String sub = null;
+            if (validSel) {
+                float mul = Balance.npc(gw.npcs.get(squadSel).role).mulFor(Balance.DUTY_BITS[i]);
+                sub = "verim %" + Math.round(mul * 100);
+            }
+            ui.button(c, bx, byy, bx + dw - 4 * sc, byy + bh,
+                    (on ? "✓ " : "") + Balance.DUTY_SHORT[i], sub,
+                    on ? UiKit.STYLE_PRIMARY : UiKit.STYLE_GHOST,
+                    !gw.npcs.isEmpty(), A_DUTY, i);
+        }
+
         // --- yoldaş alma ---
-        float ry = by + 4 * (bh + 8 * sc) + 6 * sc;
+        float ry = dy + 2 * (bh + 6 * sc) + 12 * sc;
         boolean hasBarracks = gw.barracks() != null;
         ui.label(c, hasBarracks ? "YOLDAŞ AL" : "YOLDAŞ AL — önce Kışla kur",
                 ox, ry, 19 * sc, hasBarracks ? UiKit.COL_GOLD : UiKit.COL_DIM, Paint.Align.LEFT);
@@ -1011,9 +1071,10 @@ public class HudView extends View {
         if (validSel) {
             wrapText(c, Balance.npc(gw.npcs.get(squadSel).role).desc, ox, infoY, ow, 14.5f * sc);
         } else {
-            wrapText(c, "Yoldaşlar emir almadan da akıllı davranır: hedef seçer, "
-                    + "duvarın arkasından dolaşır, canı azalınca geri çekilir ve "
-                    + "rolünün işini kendiliğinden yapar.", ox, infoY, ow, 14.5f * sc);
+            wrapText(c, "Bir yoldaşa aynı anda birden çok görev verebilirsin; hangisinin "
+                    + "daha acil olduğuna kendisi karar verir. İNŞA görevi olanlar plan "
+                    + "bıraktığın yerlere yapıyı kurar ve yıkılanları yeniden diker. "
+                    + "Hurda ortak kasadan harcanır.", ox, infoY, ow, 14.5f * sc);
         }
 
         ui.button(c, w * 0.5f - 90 * sc, h - pad - 46 * sc, w * 0.5f + 90 * sc, h - pad - 6 * sc,
@@ -1065,9 +1126,13 @@ public class HudView extends View {
             "kulelerin atış hızı düşer. Her 5. dalgada Mutant Dev gelir, enerji çekirdeği bırakır.",
             "",
             "EKİP: Kışla kurup yoldaş alabilirsin (muhafız, mühendis, toplayıcı, sağlıkçı).",
-            "EKİP düğmesinden emir ver: takip et, burayı tut, reaktörü koru, ganimet topla,",
-            "yapıları onar, bölgeye saldır, geri çekil. TUT ve SALDIR için haritada nokta seç.",
-            "Emir almadan da akıllıdırlar: duvarı dolaşır, canı azalınca çekilir, öneri verirler.",
+            "EKİP panelinde iki şey ayarlanır: DURUŞ (nerede duracak) ve GÖREVLER.",
+            "Bir yoldaşa aynı anda birden çok görev verilebilir: savaş + onar + inşa + topla.",
+            "Hangisinin acil olduğuna kendisi karar verir; TUT/SALDIR için haritada nokta seç.",
+            "",
+            "İNŞAAT: İnşa modunda PLAN düğmesini aç, zemine dokun — oraya şantiye bırakırsın.",
+            "İnşa görevi olan yoldaş gider, ortak kasadan ödeyip yapıyı kurar. OTO açıksa",
+            "yıkılan yapılar için kendiliğinden plan açılır, ekip üssü kendi onarır.",
             "",
             "GANİMET: Ölen zombiler yere hurda düşürür. Üstüne gidersen kendiliğinden çekilir,",
             "toplayıcı yoldaş senin için toplar, dalga bitince kalanlar otomatik toplanır."
@@ -1307,7 +1372,11 @@ public class HudView extends View {
             if (isDown) input.push(new Cmd(Cmd.SELECT, 0, gx, gz));
             return;
         }
-        input.push(new Cmd(Cmd.PLACE, input.buildType, gx, gz));
+        if (gw.planAt(gx, gz) != null) {
+            if (isDown) input.push(new Cmd(Cmd.CANCEL_PLAN, 0, gx, gz));   // plana dokun = iptal
+            return;
+        }
+        input.push(new Cmd(planMode ? Cmd.PLAN : Cmd.PLACE, input.buildType, gx, gz));
     }
 
     private void performAction(int act, int p) {
@@ -1329,8 +1398,16 @@ public class HudView extends View {
             case A_OPEN_SQUAD: setScreen(SCREEN_SQUAD); break;
             case A_SELECT_NPC: squadSel = p; break;
             case A_RECRUIT: input.push(new Cmd(Cmd.RECRUIT, p)); break;
+            case A_DUTY:
+                input.push(new Cmd(Cmd.DUTY, squadSel, Balance.DUTY_BITS[p], 0));
+                break;
+            case A_PLAN_MODE:
+                planMode = !planMode;
+                break;
+            case A_CANCEL_PLANS: input.push(new Cmd(Cmd.CANCEL_ALL_PLANS)); break;
+            case A_AUTOBUILD: input.push(new Cmd(Cmd.TOGGLE_AUTOBUILD)); break;
             case A_ORDER:
-                if (p == Npc.ORDER_HOLD || p == Npc.ORDER_ATTACK) {
+                if (p == Balance.STANCE_HOLD || p == Balance.STANCE_ATTACK) {
                     pendingOrder = p;      // haritadan nokta bekle
                     setScreen(SCREEN_GAME);
                 } else if (squadSel < 0) {

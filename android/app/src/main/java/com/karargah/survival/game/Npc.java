@@ -3,28 +3,20 @@ package com.karargah.survival.game;
 import com.karargah.survival.engine.MathX;
 
 /**
- * Yoldaş (yardımcı NPC). Emir alır, ama emrin içinde kendi başına akıllı
- * davranır: hedef seçer, ateş hattı kapalıysa ateş etmez, duvarlara
- * takılmamak için A* yolu izler, canı azalınca geri çekilir, boştayken
- * rolünün işini yapar.
+ * Yoldaş (yardımcı NPC).
+ *
+ * İki ayrı kavram var: <b>duruş</b> nerede duracağını söyler (takip et,
+ * burayı tut, reaktörü koru, bölgeye saldır, geri çekil) ve <b>görevler</b>
+ * ne iş yapacağını söyler. Görevler bit maskesidir: tek bir yoldaşa aynı anda
+ * savaş + onar + inşa + topla + iyileştir verilebilir. Hangi işi önce
+ * yapacağına her karede aciliyet ve mesafeye bakarak kendisi karar verir.
  */
 public class Npc {
-    public static final int ORDER_FOLLOW = 0;
-    public static final int ORDER_HOLD = 1;
-    public static final int ORDER_DEFEND_CORE = 2;
-    public static final int ORDER_GATHER = 3;
-    public static final int ORDER_REPAIR = 4;
-    public static final int ORDER_ATTACK = 5;
-    public static final int ORDER_RETREAT = 6;
-    public static final int ORDER_COUNT = 7;
-
-    public static final String[] ORDER_NAMES = {
-            "Takip et", "Burayı tut", "Reaktörü koru", "Ganimet topla",
-            "Yapıları onar", "Bölgeye saldır", "Geri çekil"
-    };
-    public static final String[] ORDER_SHORT = {
-            "TAKİP", "TUT", "KORU", "TOPLA", "ONAR", "SALDIR", "ÇEKİL"
-    };
+    public static final int TASK_NONE = 0;
+    public static final int TASK_BUILD = 1;
+    public static final int TASK_REPAIR = 2;
+    public static final int TASK_HEAL = 3;
+    public static final int TASK_GATHER = 4;
 
     private static final String[] NAMES = {
             "Kerem", "Selim", "Deniz", "Ayşe", "Baran", "Ece", "Tuna", "Mert",
@@ -45,17 +37,23 @@ public class Npc {
     public float animPhase;
     public boolean moving;
 
-    public int order = ORDER_FOLLOW;
+    /** Duruş: Balance.STANCE_*. */
+    public int stance = Balance.STANCE_FOLLOW;
+    /** Görev maskesi: Balance.DUTY_* bitleri. */
+    public int duties = Balance.DUTY_FIGHT;
     public float orderX, orderZ;
-    /** Canı azalınca geçici geri çekilme (emir değişmez). */
     public boolean retreating;
 
     public Zombie target;
     public Structure workTarget;
     public Pickup lootTarget;
+    public BuildPlan planTarget;
+    public int task = TASK_NONE;
     public float fireCd;
     public float workGlow;
     public int collected;
+    public int built;
+    public int repaired;
 
     // yol takibi
     private final int[] path = new int[160];
@@ -66,6 +64,11 @@ public class Npc {
     private float lastX, lastZ;
     private float detourTimer;
     private float detourX, detourZ;
+    private float taskTimer;
+    /** Aynı işte ne kadar süredir çalışıyor (uzun sürerse diğer görevlere sıra gelir). */
+    private float taskElapsed;
+    /** Yeni seçilen işe en az bu kadar bağlı kalır (işler arasında titremesin). */
+    private float taskLock;
     public float chatCd;
 
     private final float[] muzzle = new float[3];
@@ -82,7 +85,8 @@ public class Npc {
         this.hp = maxHp;
         this.alive = true;
         this.downed = false;
-        this.order = ORDER_FOLLOW;
+        this.stance = Balance.STANCE_FOLLOW;
+        this.duties = Balance.defaultDuties(role);
         this.chatCd = MathX.rnd(4f, 12f);
     }
 
@@ -94,14 +98,47 @@ public class Npc {
         return def().name;
     }
 
+    public boolean hasDuty(int duty) {
+        return (duties & duty) != 0;
+    }
+
+    public void toggleDuty(int duty) {
+        duties ^= duty;
+    }
+
+    /** Görev harflerinin kısa gösterimi (S O İ T +). */
+    public String dutyLetters() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Balance.DUTY_BITS.length; i++) {
+            if (hasDuty(Balance.DUTY_BITS[i])) {
+                if (sb.length() > 0) sb.append(' ');
+                sb.append(Balance.DUTY_LETTER[i]);
+            }
+        }
+        return sb.length() == 0 ? "—" : sb.toString();
+    }
+
     public String statusText() {
         if (downed) return "yerde (" + Math.max(1, Math.round(downedTimer)) + " sn)";
         if (retreating) return "geri çekiliyor";
-        return ORDER_NAMES[MathX.clampI(order, 0, ORDER_COUNT - 1)];
+        switch (task) {
+            case TASK_BUILD: return "inşa ediyor";
+            case TASK_REPAIR: return "onarıyor";
+            case TASK_HEAL: return "iyileştiriyor";
+            case TASK_GATHER: return "ganimet topluyor";
+            default:
+                return target != null ? "çatışmada"
+                        : Balance.STANCE_NAMES[MathX.clampI(stance, 0, Balance.STANCE_COUNT - 1)];
+        }
     }
 
     public float radius() {
         return 0.42f;
+    }
+
+    /** Görev için iş gücü (saniyede). */
+    public float workRate(int duty) {
+        return def().workAt(level) * def().mulFor(duty);
     }
 
     public void hurt(float amount, GameWorld w) {
@@ -113,6 +150,7 @@ public class Npc {
             downed = true;
             downedTimer = Balance.NPC_REVIVE_TIME;
             target = null;
+            task = TASK_NONE;
             w.onNpcDowned(this);
         }
     }
@@ -122,8 +160,8 @@ public class Npc {
         hp = Math.min(maxHp, hp + amount);
     }
 
-    public void setOrder(int newOrder, float ox, float oz) {
-        order = MathX.clampI(newOrder, 0, ORDER_COUNT - 1);
+    public void setStance(int newStance, float ox, float oz) {
+        stance = MathX.clampI(newStance, 0, Balance.STANCE_COUNT - 1);
         orderX = ox;
         orderZ = oz;
         pathLen = 0;
@@ -139,6 +177,9 @@ public class Npc {
         if (workGlow > 0f) workGlow = Math.max(0f, workGlow - dt * 3f);
         if (fireCd > 0f) fireCd -= dt;
         if (chatCd > 0f) chatCd -= dt;
+        if (taskTimer > 0f) taskTimer -= dt;
+        if (taskLock > 0f) taskLock -= dt;
+        taskElapsed += dt;
 
         if (downed) {
             downedTimer -= dt;
@@ -146,77 +187,61 @@ public class Npc {
             return;
         }
 
-        // Durum değerlendirmesi: canı azaldıysa kendi kararıyla çekilir.
         float frac = hp / Math.max(1f, maxHp);
-        if (!retreating && frac < 0.28f && order != ORDER_RETREAT) {
+        if (!retreating && frac < 0.28f && stance != Balance.STANCE_RETREAT) {
             retreating = true;
             w.npcSays(this, "Vuruldum, geri çekiliyorum!");
         } else if (retreating && frac > 0.72f) {
             retreating = false;
             w.npcSays(this, "İyileştim, göreve dönüyorum.");
         }
-        if (retreating || order == ORDER_RETREAT) {
-            if (w.nearBase(x, z, 12f)) hp = Math.min(maxHp, hp + 3.5f * dt);
+        boolean withdrawing = retreating || stance == Balance.STANCE_RETREAT;
+        if (withdrawing && w.nearBase(x, z, 12f)) {
+            hp = Math.min(maxHp, hp + 3.5f * dt);
         }
 
         acquireTarget(w);
+        if (withdrawing) {
+            task = TASK_NONE;
+        } else if (taskTimer <= 0f) {
+            chooseTask(w);
+            taskTimer = 0.4f;     // her karede hedef değiştirip titremesin
+        }
+        validateTask(w);
+
         float destX = x, destZ = z;
         float arrive = 1.2f;
         boolean holdStill = false;
 
-        if (retreating || order == ORDER_RETREAT) {
+        if (withdrawing) {
             destX = 0f;
             destZ = 0f;
             arrive = 7f;
+        } else if (task != TASK_NONE) {
+            float[] tp = taskPoint(w);
+            destX = tp[0];
+            destZ = tp[1];
+            arrive = taskRange(w) * 0.8f;
         } else {
-            switch (order) {
-                case ORDER_HOLD:
+            switch (stance) {
+                case Balance.STANCE_HOLD:
                     destX = orderX;
                     destZ = orderZ;
                     arrive = 0.9f;
                     break;
-                case ORDER_DEFEND_CORE: {
+                case Balance.STANCE_DEFEND: {
                     float a = MathX.TAU * (index % 6) / 6f;
                     destX = (float) Math.cos(a) * 6.5f;
                     destZ = (float) Math.sin(a) * 6.5f;
                     arrive = 1.1f;
                     break;
                 }
-                case ORDER_GATHER: {
-                    Pickup p = pickLoot(w, 200f);
-                    if (p != null) {
-                        destX = p.x;
-                        destZ = p.z;
-                        arrive = 0.7f;
-                    } else {
-                        destX = w.player.x;
-                        destZ = w.player.z;
-                        arrive = 2.2f;
-                    }
-                    break;
-                }
-                case ORDER_REPAIR: {
-                    Structure s = pickRepair(w, 200f);
-                    if (s != null) {
-                        destX = s.x;
-                        destZ = s.z;
-                        arrive = 1.8f;
-                    } else {
-                        destX = w.player.x;
-                        destZ = w.player.z;
-                        arrive = 2.2f;
-                    }
-                    break;
-                }
-                case ORDER_ATTACK:
+                case Balance.STANCE_ATTACK:
                     destX = orderX;
                     destZ = orderZ;
                     arrive = 2.4f;
-                    if (target != null && MathX.dist(x, z, target.x, target.z) < def().range) {
-                        holdStill = true;
-                    }
                     break;
-                default: {   // takip
+                default: {
                     float a = MathX.TAU * (index % 6) / 6f + 0.6f;
                     destX = w.player.x + (float) Math.cos(a) * 2.4f;
                     destZ = w.player.z + (float) Math.sin(a) * 2.4f;
@@ -224,39 +249,15 @@ public class Npc {
                     break;
                 }
             }
-            // Boştayken rolünün işini kendiliğinden yapar.
-            if (order == ORDER_FOLLOW || order == ORDER_HOLD || order == ORDER_DEFEND_CORE) {
-                float leash = order == ORDER_FOLLOW ? 9f : 11f;
-                if (role == Balance.NPC_SCAVENGER) {
-                    Pickup p = pickLoot(w, leash);
-                    if (p != null) {
-                        destX = p.x;
-                        destZ = p.z;
-                        arrive = 0.7f;
-                    }
-                } else if (role == Balance.NPC_ENGINEER) {
-                    Structure s = pickRepair(w, leash);
-                    if (s != null) {
-                        destX = s.x;
-                        destZ = s.z;
-                        arrive = 1.8f;
-                    }
-                } else if (role == Balance.NPC_MEDIC) {
-                    float[] h = w.nearestHurtAlly(x, z, leash);
-                    if (h != null) {
-                        destX = h[0];
-                        destZ = h[1];
-                        arrive = 1.6f;
-                    }
-                }
-            }
         }
 
-        // Hedefe ateş ederken duran roller
-        if (!holdStill && target != null && role == Balance.NPC_GUARD
-                && MathX.dist(x, z, target.x, target.z) < def().range * 0.8f
-                && order != ORDER_GATHER && order != ORDER_REPAIR) {
-            holdStill = true;
+        // Dövüş görevi varsa ve düşman menzildeyse durup ateş eder.
+        if (!withdrawing && target != null && hasDuty(Balance.DUTY_FIGHT)) {
+            float td = MathX.dist(x, z, target.x, target.z);
+            boolean threat = td < 6.5f;
+            if (threat || (task == TASK_NONE && td < def().range * 0.85f)) {
+                holdStill = true;
+            }
         }
 
         if (!holdStill) {
@@ -265,7 +266,7 @@ public class Npc {
             moving = false;
         }
 
-        doRoleWork(w, dt);
+        doTask(w, dt);
         shoot(w, dt);
 
         if (target != null) {
@@ -273,35 +274,250 @@ public class Npc {
         }
     }
 
+    // ---- görev seçimi ---------------------------------------------------
+
+    /** Duruşa göre işlerin yapılabileceği yarıçap (bölgeden kopmasın). */
+    private float leash(GameWorld w) {
+        switch (stance) {
+            case Balance.STANCE_HOLD: return 14f;
+            case Balance.STANCE_DEFEND: return 16f;
+            case Balance.STANCE_ATTACK: return 8f;
+            default: return 13f;
+        }
+    }
+
+    /**
+     * Uzun süredir aynı işi yapıyorsa o işin puanı düşer; böylece birden çok
+     * görevi olan yoldaş işler arasında sırayla dolaşır, tek işe saplanmaz.
+     */
+    private int rotatingFrom;
+
+    private float rotationPenalty(int candidate) {
+        if (candidate != rotatingFrom || taskElapsed < 8f) return 0f;
+        return Math.min(70f, (taskElapsed - 8f) * 10f);
+    }
+
+    private void chooseTask(GameWorld w) {
+        // Seçilen işe kısa süre bağlı kal: yoksa iki iş arasında gidip gelir.
+        if (task != TASK_NONE && taskLock > 0f) return;
+        int previous = task;
+        rotatingFrom = previous;
+        task = TASK_NONE;
+        planTarget = null;
+        workTarget = null;
+        lootTarget = null;
+        float range = leash(w);
+        boolean prepare = w.waves.isPrepare();
+        float best = 0f;
+
+        if (hasDuty(Balance.DUTY_BUILD)) {
+            BuildPlan p = w.nearestPlan(x, z, range * 2.5f);
+            if (p != null) {
+                float score = 90f + (prepare ? 45f : 0f) - MathX.dist(x, z, p.x, p.z) * 0.6f
+                        - rotationPenalty(TASK_BUILD);
+                if (p.waiting && !w.canAfford(w.player.buildCost(p.def().cost))) score -= 80f;
+                if (score > best) {
+                    best = score;
+                    task = TASK_BUILD;
+                    planTarget = p;
+                }
+            }
+        }
+        if (hasDuty(Balance.DUTY_REPAIR)) {
+            Structure s = w.mostDamagedStructure(x, z, range);
+            if (s != null) {
+                float score = 40f + 70f * (1f - s.hpFraction()) - MathX.dist(x, z, s.x, s.z) * 0.5f
+                        - rotationPenalty(TASK_REPAIR);
+                if (s.type == Balance.S_CORE) score += 30f;
+                if (score > best) {
+                    best = score;
+                    task = TASK_REPAIR;
+                    workTarget = s;
+                    planTarget = null;
+                }
+            }
+        }
+        if (hasDuty(Balance.DUTY_HEAL)) {
+            float[] h = w.nearestHurtAllyNeed(x, z, range);
+            if (h != null) {
+                float score = 45f + 90f * h[2] - MathX.dist(x, z, h[0], h[1]) * 0.5f
+                        - rotationPenalty(TASK_HEAL);
+                if (score > best) {
+                    best = score;
+                    task = TASK_HEAL;
+                    healX = h[0];
+                    healZ = h[1];
+                    workTarget = null;
+                    planTarget = null;
+                }
+            }
+        }
+        if (hasDuty(Balance.DUTY_GATHER)) {
+            Pickup p = w.nearestPickup(x, z, range * 2.2f);
+            if (p != null) {
+                float score = 26f + Math.min(24f, w.pickups.size() * 1.5f)
+                        - MathX.dist(x, z, p.x, p.z) * 0.45f - rotationPenalty(TASK_GATHER);
+                if (score > best) {
+                    best = score;
+                    task = TASK_GATHER;
+                    lootTarget = p;
+                    workTarget = null;
+                    planTarget = null;
+                }
+            }
+        }
+        if (best <= 0f) task = TASK_NONE;
+        if (task != previous) {
+            taskElapsed = 0f;
+            taskLock = task == TASK_NONE ? 0f : 4.5f;
+        }
+    }
+
+    private float healX, healZ;
+
+    private void validateTask(GameWorld w) {
+        switch (task) {
+            case TASK_BUILD:
+                if (planTarget == null || !planTarget.alive) task = TASK_NONE;
+                break;
+            case TASK_REPAIR:
+                if (workTarget == null || !workTarget.alive || workTarget.hp >= workTarget.maxHp) {
+                    task = TASK_NONE;
+                }
+                break;
+            case TASK_GATHER:
+                if (lootTarget == null || !lootTarget.alive) task = TASK_NONE;
+                break;
+            default:
+                break;
+        }
+    }
+
+    private final float[] taskPointTmp = new float[2];
+
+    private float[] taskPoint(GameWorld w) {
+        switch (task) {
+            case TASK_BUILD:
+                taskPointTmp[0] = planTarget.x;
+                taskPointTmp[1] = planTarget.z;
+                break;
+            case TASK_REPAIR:
+                taskPointTmp[0] = workTarget.x;
+                taskPointTmp[1] = workTarget.z;
+                break;
+            case TASK_HEAL:
+                taskPointTmp[0] = healX;
+                taskPointTmp[1] = healZ;
+                break;
+            case TASK_GATHER:
+                taskPointTmp[0] = lootTarget.x;
+                taskPointTmp[1] = lootTarget.z;
+                break;
+            default:
+                taskPointTmp[0] = x;
+                taskPointTmp[1] = z;
+                break;
+        }
+        return taskPointTmp;
+    }
+
+    private float taskRange(GameWorld w) {
+        switch (task) {
+            case TASK_BUILD: return 2.4f;
+            case TASK_REPAIR: return 2.6f + (workTarget != null ? workTarget.footprintRadius() : 0f);
+            case TASK_HEAL: return 3.0f;
+            case TASK_GATHER: return 1.0f;
+            default: return 1.5f;
+        }
+    }
+
+    private void doTask(GameWorld w, float dt) {
+        if (task == TASK_NONE) return;
+        float[] tp = taskPoint(w);
+        float d = MathX.dist(x, z, tp[0], tp[1]);
+        if (d > taskRange(w)) return;
+
+        switch (task) {
+            case TASK_BUILD: {
+                float rate = Balance.BUILD_WORK_PER_SEC * workRate(Balance.DUTY_BUILD);
+                if (w.workOnPlan(this, planTarget, dt, rate)) workGlow = 1f;
+                break;
+            }
+            case TASK_REPAIR: {
+                float amount = workRate(Balance.DUTY_REPAIR) * w.player.repairBonus() * dt;
+                workTarget.repair(amount);
+                repaired += Math.round(amount);
+                workGlow = 1f;
+                if (MathX.chance(dt * 3f)) {
+                    w.particles.sparks(workTarget.x + MathX.rnd(-0.5f, 0.5f), 1f,
+                            workTarget.z + MathX.rnd(-0.5f, 0.5f), 3, 0xFFB74D);
+                }
+                break;
+            }
+            case TASK_HEAL: {
+                float healed = workRate(Balance.DUTY_HEAL) * dt;
+                if (w.player.alive && MathX.dist(x, z, w.player.x, w.player.z) < 3.2f) {
+                    w.player.heal(healed);
+                    workGlow = 1f;
+                }
+                for (int i = 0; i < w.npcs.size(); i++) {
+                    Npc o = w.npcs.get(i);
+                    if (o == this) continue;
+                    if (MathX.dist(x, z, o.x, o.z) > 3.2f) continue;
+                    if (o.downed) {
+                        o.downedTimer -= dt * (1.2f + def().healMul);
+                        workGlow = 1f;
+                    } else if (o.hp < o.maxHp) {
+                        o.heal(healed);
+                        workGlow = 1f;
+                    }
+                }
+                if (workGlow > 0f && MathX.chance(dt * 4f)) {
+                    w.particles.spawn(x, 1.4f, z, 0f, 1.2f, 0f, 0xE57373, 0.7f,
+                            0.1f, 0.02f, 0.5f, 0.3f, 1f, 1);
+                }
+                break;
+            }
+            case TASK_GATHER: {
+                collected += lootTarget.amount;
+                w.collectPickup(lootTarget, false);
+                lootTarget = null;
+                task = TASK_NONE;
+                workGlow = 1f;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     // ---- hedefleme ve ateş ---------------------------------------------
 
     private void acquireTarget(GameWorld w) {
-        if (retreating || order == ORDER_RETREAT || role == Balance.NPC_SCAVENGER
-                && order == ORDER_GATHER) {
-            if (role != Balance.NPC_SCAVENGER) target = null;
-        }
         Balance.NpcDef d = def();
         if (target != null && (!target.alive
                 || MathX.dist(x, z, target.x, target.z) > d.range * 1.25f)) {
             target = null;
         }
         if (target == null) {
-            target = w.bestZombieFor(x, z, d.range * 1.15f);
+            // Dövüş görevi kapalı olsa bile 7 birim içindeki tehdide karşılık verir.
+            float range = hasDuty(Balance.DUTY_FIGHT) ? d.range * 1.15f : 7f;
+            target = w.bestZombieFor(x, z, range);
         }
     }
 
     private void shoot(GameWorld w, float dt) {
         if (target == null || downed) return;
-        if (retreating || order == ORDER_RETREAT) return;
+        if (retreating || stance == Balance.STANCE_RETREAT) return;
         Balance.NpcDef d = def();
         float dist = MathX.dist(x, z, target.x, target.z);
         if (dist > d.range || fireCd > 0f) return;
-        if (!PathFinder.clearLine(w.grid, x, z, target.x, target.z)) return;   // duvara ateş etmez
-        fireCd = 1f / Math.max(0.1f, d.fireRate);
+        if (!PathFinder.clearLine(w.grid, x, z, target.x, target.z)) return;
+        float rate = d.fireRate * (hasDuty(Balance.DUTY_FIGHT) ? 1f : 0.6f);
+        fireCd = 1f / Math.max(0.1f, rate);
         w.npcShoot(this, target);
     }
 
-    /** Silah namlusunun dünya konumu. */
     public void muzzleWorld(float[] out) {
         Balance.WeaponDef wd = Balance.weapon(def().weapon);
         float c = (float) Math.cos(yaw), s = (float) Math.sin(yaw);
@@ -315,83 +531,6 @@ public class Npc {
     public float[] muzzle() {
         muzzleWorld(muzzle);
         return muzzle;
-    }
-
-    // ---- rol işleri -----------------------------------------------------
-
-    private void doRoleWork(GameWorld w, float dt) {
-        Balance.NpcDef d = def();
-        switch (role) {
-            case Balance.NPC_ENGINEER: {
-                Structure s = workTarget;
-                if (s != null && s.alive && s.hp < s.maxHp
-                        && MathX.dist(x, z, s.x, s.z) < 2.6f + s.footprintRadius()) {
-                    s.repair(d.workAt(level) * w.player.repairBonus() * dt);
-                    workGlow = 1f;
-                    if (MathX.chance(dt * 3f)) {
-                        w.particles.sparks(s.x + MathX.rnd(-0.5f, 0.5f), 1f,
-                                s.z + MathX.rnd(-0.5f, 0.5f), 3, 0xFFB74D);
-                    }
-                }
-                break;
-            }
-            case Balance.NPC_MEDIC: {
-                float healed = d.workAt(level) * dt;
-                if (w.player.alive && MathX.dist(x, z, w.player.x, w.player.z) < 3.2f
-                        && w.player.hp < w.player.maxHp) {
-                    w.player.heal(healed);
-                    workGlow = 1f;
-                }
-                for (int i = 0; i < w.npcs.size(); i++) {
-                    Npc o = w.npcs.get(i);
-                    if (o == this || !o.alive) continue;
-                    float dd = MathX.dist(x, z, o.x, o.z);
-                    if (dd > 3.2f) continue;
-                    if (o.downed) {
-                        o.downedTimer -= dt * 2.2f;   // düşeni kaldırmayı hızlandırır
-                        workGlow = 1f;
-                    } else if (o.hp < o.maxHp) {
-                        o.heal(healed);
-                        workGlow = 1f;
-                    }
-                }
-                if (workGlow > 0f && MathX.chance(dt * 4f)) {
-                    w.particles.spawn(x, 1.4f, z, 0f, 1.2f, 0f, 0xE57373, 0.7f,
-                            0.1f, 0.02f, 0.5f, 0.3f, 1f, 1);
-                }
-                break;
-            }
-            case Balance.NPC_SCAVENGER: {
-                Pickup p = lootTarget;
-                if (p != null && p.alive && MathX.dist(x, z, p.x, p.z) < 1.1f) {
-                    collected += p.amount;
-                    w.collectPickup(p, false);
-                    lootTarget = null;
-                    workGlow = 1f;
-                }
-                break;
-            }
-            default:
-                break;
-        }
-    }
-
-    private Pickup pickLoot(GameWorld w, float range) {
-        if (lootTarget != null && lootTarget.alive
-                && MathX.dist(x, z, lootTarget.x, lootTarget.z) < range) {
-            return lootTarget;
-        }
-        lootTarget = w.nearestPickup(x, z, range);
-        return lootTarget;
-    }
-
-    private Structure pickRepair(GameWorld w, float range) {
-        if (workTarget != null && workTarget.alive && workTarget.hp < workTarget.maxHp
-                && MathX.dist(x, z, workTarget.x, workTarget.z) < range) {
-            return workTarget;
-        }
-        workTarget = w.mostDamagedStructure(x, z, range);
-        return workTarget;
     }
 
     // ---- hareket --------------------------------------------------------
@@ -411,7 +550,7 @@ public class Npc {
             dirZ = detourZ - z;
             if (MathX.len(dirX, dirZ) < 0.5f) detourTimer = 0f;
         } else if (PathFinder.clearLine(w.grid, x, z, tx, tz)) {
-            pathLen = 0;               // yol açık, doğrudan git
+            pathLen = 0;
             dirX = tx - x;
             dirZ = tz - z;
         } else {
@@ -460,8 +599,6 @@ public class Npc {
             yaw = MathX.approachAngle(yaw, (float) Math.atan2(dirX, dirZ), dt * 8f);
         }
 
-        // Takılma kontrolü: yerinde sayıyorsa yolu yenile, olmazsa kısa bir
-        // sapma noktası seçip duvarı dolaşmayı dener.
         stuckTimer += dt;
         if (stuckTimer > 0.6f) {
             float moved = MathX.dist(lastX, lastZ, x, z);
@@ -513,7 +650,6 @@ public class Npc {
         return null;
     }
 
-    /** Yol bulunamadıysa duvarı yandan dolaşmayı dene. */
     private void pickDetour(GameWorld w, float tx, float tz) {
         float dx = tx - x, dz = tz - z;
         float l = MathX.len(dx, dz);

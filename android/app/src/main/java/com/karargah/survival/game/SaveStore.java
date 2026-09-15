@@ -109,15 +109,33 @@ public final class SaveStore {
                 jn.put("lvl", n.level);
                 jn.put("name", n.name);
                 jn.put("hp", n.hp);
-                jn.put("order", n.order);
+                jn.put("stance", n.stance);
+                jn.put("duties", n.duties);
                 jn.put("ox", n.orderX);
                 jn.put("oz", n.orderZ);
                 jn.put("col", n.collected);
+                jn.put("built", n.built);
                 jn.put("x", n.x);
                 jn.put("z", n.z);
                 npcArr.put(jn);
             }
             root.put("npcs", npcArr);
+
+            JSONArray planArr = new JSONArray();
+            for (int i = 0; i < w.plans.size(); i++) {
+                BuildPlan bp = w.plans.get(i);
+                JSONObject jpl = new JSONObject();
+                jpl.put("t", bp.type);
+                jpl.put("x", bp.gx);
+                jpl.put("z", bp.gz);
+                jpl.put("r", bp.rotation);
+                jpl.put("p", bp.progress);
+                jpl.put("paid", bp.paid);
+                jpl.put("auto", bp.auto);
+                planArr.put(jpl);
+            }
+            root.put("plans", planArr);
+            root.put("autoRebuild", w.autoRebuild);
 
             prefs(ctx).edit()
                     .putString(KEY_STATE, root.toString())
@@ -231,12 +249,27 @@ public final class SaveStore {
                     if (nm != null && !nm.isEmpty()) n.name = nm;
                     n.hp = Math.min(n.maxHp, (float) jn.optDouble("hp", n.maxHp));
                     if (n.hp <= 1f) n.hp = n.maxHp * 0.6f;
-                    n.setOrder(jn.optInt("order", Npc.ORDER_FOLLOW),
+                    n.setStance(jn.optInt("stance", Balance.STANCE_FOLLOW),
                             (float) jn.optDouble("ox", 0), (float) jn.optDouble("oz", 0));
+                    n.duties = jn.optInt("duties", Balance.defaultDuties(n.role));
                     n.collected = jn.optInt("col", 0);
+                    n.built = jn.optInt("built", 0);
                     w.npcs.add(n);
                 }
             }
+            JSONArray planArr = root.optJSONArray("plans");
+            if (planArr != null) {
+                for (int i = 0; i < planArr.length(); i++) {
+                    JSONObject jpl = planArr.getJSONObject(i);
+                    BuildPlan bp = new BuildPlan(jpl.optInt("t", Balance.S_WALL),
+                            jpl.optInt("x", 0), jpl.optInt("z", 0), jpl.optInt("r", 0),
+                            jpl.optBoolean("auto", false));
+                    bp.progress = (float) jpl.optDouble("p", 0);
+                    bp.paid = jpl.optBoolean("paid", false);
+                    if (w.grid.canPlace(bp.gx, bp.gz) == BuildGrid.OK) w.plans.add(bp);
+                }
+            }
+            w.autoRebuild = root.optBoolean("autoRebuild", true);
             w.advisor.reset();
             w.refreshAllWalls();
             w.flow.compute(w.grid);

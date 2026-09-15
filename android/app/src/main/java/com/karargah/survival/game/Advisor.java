@@ -23,7 +23,9 @@ public class Advisor {
     public static final int TIP_BOSS = 8;
     public static final int TIP_WALLS = 9;
     public static final int TIP_MEDIC = 10;
-    public static final int TIP_COUNT = 11;
+    public static final int TIP_NO_BUILDER = 11;
+    public static final int TIP_PLAN_WAITING = 12;
+    public static final int TIP_COUNT = 13;
 
     private final float[] lastSaid = new float[TIP_COUNT];
     private float timer = 4f;
@@ -63,6 +65,20 @@ public class Advisor {
         boolean prepare = w.waves.isPrepare();
 
         if (w.core != null && w.core.hpFraction() < 0.55f) return TIP_CORE;
+
+        // Bekleyen şantiyeler
+        if (!w.plans.isEmpty()) {
+            boolean builder = false;
+            boolean waiting = false;
+            for (int i = 0; i < w.npcs.size(); i++) {
+                if (w.npcs.get(i).hasDuty(Balance.DUTY_BUILD)) builder = true;
+            }
+            for (int i = 0; i < w.plans.size(); i++) {
+                if (w.plans.get(i).waiting) waiting = true;
+            }
+            if (!builder) return TIP_NO_BUILDER;
+            if (waiting) return TIP_PLAN_WAITING;
+        }
         if (w.powerUse > 0.5f && w.powerEff < 0.999f) return TIP_POWER;
 
         int damaged = 0;
@@ -138,6 +154,8 @@ public class Advisor {
             case TIP_WALLS:
             case TIP_POWER:
             case TIP_CORE:
+            case TIP_NO_BUILDER:
+            case TIP_PLAN_WAITING:
                 preferred = Balance.NPC_ENGINEER;
                 break;
             case TIP_LOOT:
@@ -187,6 +205,10 @@ public class Advisor {
                 return "Duvar hattımız ince, zombiler doğrudan içeri giriyor.";
             case TIP_MEDIC:
                 return "Canın düşük; bir sağlıkçı yoldaş işimizi kolaylaştırır.";
+            case TIP_NO_BUILDER:
+                return "Şantiyeler bekliyor ama kimsede İNŞA görevi yok, birine ver.";
+            case TIP_PLAN_WAITING:
+                return "Kasada hurda yetmiyor, şantiyeler bekliyor.";
             default:
                 return "";
         }
