@@ -2,7 +2,9 @@ package com.karargah.survival.ui;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -156,6 +158,8 @@ public class HudView extends View {
             drawWorldOverlay(c, gw, w, h);
             drawTopBar(c, gw, w, h);
             if (screen == SCREEN_GAME) {
+                drawDamageVignette(c, gw, w, h);
+                drawBossBar(c, gw, w, h);
                 drawMinimap(c, gw, w, h);
                 drawControls(c, gw, w, h);
                 if (input.buildMode) {
@@ -330,6 +334,8 @@ public class HudView extends View {
     }
 
     private final float[] tmpVP = new float[16];
+    private LinearGradient vignetteTop, vignetteBottom;
+    private float vignetteW, vignetteH;
 
     // ---- kontroller -----------------------------------------------------
 
@@ -458,6 +464,54 @@ public class HudView extends View {
                 cy + gw.player.z * scale + fz * 9 * sc, ui.stroke);
     }
 
+    /** Hasar alınca kenarlarda kırmızı parlama. */
+    private void drawDamageVignette(Canvas c, GameWorld gw, float w, float h) {
+        float f = gw.player.alive ? gw.player.hurtFlash : 0.55f;
+        float low = gw.player.alive && gw.player.hp < gw.player.maxHp * 0.3f ? 0.22f : 0f;
+        float a = Math.max(Math.min(f, 0.55f), low);
+        if (a <= 0.01f) return;
+        float band = Math.min(w, h) * 0.13f;
+        if (vignetteTop == null || vignetteW != w || vignetteH != h) {
+            vignetteW = w;
+            vignetteH = h;
+            vignetteTop = new LinearGradient(0, 0, 0, band, 0xFFC02020, 0x00C02020,
+                    Shader.TileMode.CLAMP);
+            vignetteBottom = new LinearGradient(0, h, 0, h - band, 0xFFC02020, 0x00C02020,
+                    Shader.TileMode.CLAMP);
+        }
+        ui.fill.setStyle(Paint.Style.FILL);
+        ui.fill.setColor(0xFFC02020);
+        ui.fill.setAlpha((int) (a * 190));
+        ui.fill.setShader(vignetteTop);
+        c.drawRect(0, 0, w, band, ui.fill);
+        ui.fill.setShader(vignetteBottom);
+        c.drawRect(0, h - band, w, h, ui.fill);
+        ui.fill.setShader(null);
+        ui.fill.setAlpha(255);
+    }
+
+    /** Sahadaki en güçlü boss için ekranın üstünde büyük can çubuğu. */
+    private void drawBossBar(Canvas c, GameWorld gw, float w, float h) {
+        Zombie boss = null;
+        for (int i = 0; i < gw.zombies.size(); i++) {
+            Zombie z;
+            try {
+                z = gw.zombies.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (z == null || !z.alive || !z.isBoss()) continue;
+            if (boss == null || z.hp > boss.hp) boss = z;
+        }
+        if (boss == null) return;
+        float bw = Math.min(w * 0.52f, 560 * sc);
+        float cx = w * 0.5f;
+        float t = 96 * sc;
+        ui.labelShadow(c, "MUTANT DEV", cx, t - 6 * sc, 20 * sc, 0xFFFF7043, Paint.Align.CENTER);
+        ui.bar(c, cx - bw * 0.5f, t, cx + bw * 0.5f, t + 16 * sc,
+                boss.hp / boss.maxHp, 0xCC1A0E0E, 0xFFD32F2F, true);
+    }
+
     private void drawMessages(Canvas c, GameWorld gw, float w, float h) {
         if (gw.messageTimer > 0f && gw.message != null) {
             float a = Math.min(1f, gw.messageTimer);
@@ -484,6 +538,22 @@ public class HudView extends View {
         float x0 = (w - cell * n) * 0.5f;
 
         ui.rect(c, x0 - 10 * sc, y0 - 8 * sc, x0 + cell * n + 10 * sc, y1 + 4 * sc, 12 * sc, 0xCC0E1411);
+
+        // Seçili yapının ne işe yaradığını anlatan şerit
+        Balance.StructDef chosen = Balance.struct(input.buildType);
+        String info = chosen.desc;
+        if (chosen.kind == Balance.KIND_TURRET) {
+            info += "   [hasar " + Math.round(chosen.damage) + " · menzil " + Math.round(chosen.range)
+                    + " · enerji " + Math.round(-chosen.power) + "]";
+        } else if (chosen.power > 0) {
+            info += "   [enerji +" + Math.round(chosen.power) + "]";
+        }
+        float stripY = y0 - 16 * sc;
+        ui.rect(c, x0 - 10 * sc, stripY - 22 * sc, x0 + cell * n + 10 * sc, stripY + 6 * sc,
+                8 * sc, 0xB00E1411);
+        ui.label(c, chosen.name, x0 + 4 * sc, stripY, 17 * sc, UiKit.COL_GOLD, Paint.Align.LEFT);
+        ui.label(c, info, x0 + 14 * sc + ui.textWidth(chosen.name, 17 * sc), stripY, 15 * sc,
+                UiKit.COL_DIM, Paint.Align.LEFT);
 
         for (int i = 1; i <= n; i++) {
             Balance.StructDef d = Balance.struct(i);
@@ -533,6 +603,7 @@ public class HudView extends View {
 
         float y = t + 70 * sc;
         ui.label(c, "Can", l + 18 * sc, y, 16 * sc, UiKit.COL_DIM, Paint.Align.LEFT);
+        wrapText(c, d.desc, l + 18 * sc, t + ph - 118 * sc, pw - 36 * sc, 13.5f * sc);
         ui.bar(c, l + 70 * sc, y - 12 * sc, l + pw - 18 * sc, y + 2 * sc, s.hpFraction(),
                 0xFF1B2320, 0xFF7ECB6B, true);
         ui.label(c, Math.round(s.hp) + " / " + Math.round(s.maxHp), l + 74 * sc, y - 1 * sc,
@@ -575,6 +646,29 @@ public class HudView extends View {
         if (s != gw.core) {
             ui.button(c, l + pw * 0.5f + 4 * sc, by, l + pw - 14 * sc, by + 40 * sc, "SAT",
                     "+" + d.sellValue(s.level, s.hpFraction()), UiKit.STYLE_DANGER, true, A_SELL, 0);
+        }
+    }
+
+    /** Paneldeki açıklamayı verilen genişliğe sığdırarak yazar. */
+    private void wrapText(Canvas c, String text, float x, float y, float maxW, float size) {
+        if (text == null) return;
+        String[] words = text.split(" ");
+        StringBuilder line = new StringBuilder();
+        float ly = y;
+        for (String word : words) {
+            String candidate = line.length() == 0 ? word : line + " " + word;
+            if (ui.textWidth(candidate, size) > maxW && line.length() > 0) {
+                ui.label(c, line.toString(), x, ly, size, UiKit.COL_DIM, Paint.Align.LEFT);
+                ly += size * 1.25f;
+                line.setLength(0);
+                line.append(word);
+            } else {
+                line.setLength(0);
+                line.append(candidate);
+            }
+        }
+        if (line.length() > 0) {
+            ui.label(c, line.toString(), x, ly, size, UiKit.COL_DIM, Paint.Align.LEFT);
         }
     }
 
