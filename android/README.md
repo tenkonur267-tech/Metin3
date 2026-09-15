@@ -12,7 +12,10 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
 
 - **Dalga döngüsü:** hazırlık → dalga → temizlendi → hazırlık... Sonsuza kadar.
   Her 5. dalgada **Mutant Dev** gelir ve enerji çekirdeği bırakır.
-- **12 farklı yapı**, hepsi 1→5 seviye geliştirilebilir (görünümleri de değişir):
+- **Duvarlar komşularına göre birleşir** (köşe, T ve haç parçaları) — sıraladığın
+  duvarlar boşluksuz tek bir sur gibi durur.
+- **12 farklı yapı**, hepsi 1→5 seviye geliştirilebilir (görünümleri de değişir:
+  kule namluları çoğalır, zırh plakası ve enerji hatları eklenir, yapı irileşir):
   duvar, dikenli tuzak, makineli/top/alev/tesla/nişancı kuleleri, jeneratör,
   cephanelik, tamir istasyonu, tıbbi istasyon, hurda toplayıcı.
 - **Enerji sistemi:** kuleler enerji tüketir, jeneratörler üretir. Açık varsa
@@ -38,6 +41,7 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
 | Kamera | Sağ yarıda sürükle, iki parmakla yakınlaştır |
 | İnşa modu | Sağ üstteki "İNŞA MODU" düğmesi |
 | Yapı kurma | İnşa modunda alttan yapı seç, ızgaraya dokun (sürükleyerek seri dizebilirsin) |
+| Döndürme | Soldaki YÖN düğmesi yeni yapının yönünü, bir yapı seçiliyken onun yönünü çevirir (duvarlar kendiliğinden hizalanır) |
 | Geliştir / onar / sat | Kurulu bir yapıya dokun, sağdaki panelden seç |
 
 ## APK nasıl alınır

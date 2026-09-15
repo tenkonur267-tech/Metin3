@@ -19,6 +19,7 @@ public class Cmd {
     public static final int SAVE = 15;
     public static final int DESELECT = 16;
     public static final int BUY_AMMO = 17;
+    public static final int ROTATE = 18;
 
     public final int op;
     public final int a, b, c;

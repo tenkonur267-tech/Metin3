@@ -63,6 +63,7 @@ public class HudView extends View {
     private static final int A_BUY_AMMO = 28;
     private static final int A_QUIT = 29;
     private static final int A_FIRE = 30;
+    private static final int A_ROTATE = 31;
 
     public interface Listener {
         void onNewGame();
@@ -580,6 +581,16 @@ public class HudView extends View {
                     Paint.Align.CENTER);
         }
 
+        // döndürme: seçili yapı varsa onu, yoksa yerleştirme yönünü çevirir
+        Structure selStruct = gw.selected;
+        boolean wallSel = (selStruct != null && selStruct.type == Balance.S_WALL)
+                || (selStruct == null && input.buildType == Balance.S_WALL);
+        String rotTitle = selStruct != null && selStruct.alive ? "DÖNDÜR" : "YÖN";
+        String rotSub = wallSel ? "duvar otomatik" : (input.buildRotation * 90) + "°";
+        ui.button(c, 14 * sc, h - 216 * sc, 190 * sc, h - 174 * sc,
+                rotTitle, rotSub, wallSel ? UiKit.STYLE_GHOST : UiKit.STYLE_NORMAL,
+                true, A_ROTATE, 0);
+
         // tümünü onar
         int repairCost = gw.repairAllCost();
         if (repairCost > 0) {
@@ -863,7 +874,9 @@ public class HudView extends View {
             "",
             "HAZIRLIK: Her dalga arasında inşa süresi var. İNŞA MODU düğmesine bas,",
             "alttan bir yapı seç ve ızgaraya dokun. Parmağını sürükleyerek arka arkaya",
-            "duvar dizebilirsin. Kurulu bir yapıya dokunursan geliştir/onar/sat paneli açılır.",
+            "duvar dizebilirsin; duvarlar komşularına göre kendiliğinden birleşir.",
+            "Diğer yapıların yönünü soldaki YÖN/DÖNDÜR düğmesiyle çevirebilirsin.",
+            "Kurulu bir yapıya dokunursan geliştir/onar/sat paneli açılır.",
             "",
             "SAVAŞ: Sol yarıda parmağını basılı tut ve sürükle, karakter o yöne gider.",
             "ATEŞ düğmesi en yakın hedefe otomatik nişan alır. ATIL ile kısa mesafe sıçra.",
@@ -1060,10 +1073,23 @@ public class HudView extends View {
             vw = getWidth();
             vh = getHeight();
         }
-        if (!M4.unprojectToPlane(tmpVP, x, y, vw, vh, 0.35f, tmpA, tmpB, outXZ)) return;
+        // Yerleştirme için zemin düzlemi doğru sonucu verir.
+        if (!M4.unprojectToPlane(tmpVP, x, y, vw, vh, 0.05f, tmpA, tmpB, outXZ)) return;
         int gx = BuildGrid.worldToCell(outXZ[0]);
         int gz = BuildGrid.worldToCell(outXZ[1]);
         if (!BuildGrid.inBounds(gx, gz)) return;
+
+        // Boş hücreye dokunulduysa, aslında yakındaki bir yapının gövdesine
+        // dokunulmuş olabilir (kule zeminden yüksek durur): gövde hizasını da dene.
+        if (gw.grid.at(gx, gz) == null
+                && M4.unprojectToPlane(tmpVP, x, y, vw, vh, 1.1f, tmpA, tmpB, outXZ)) {
+            int bx = BuildGrid.worldToCell(outXZ[0]);
+            int bz = BuildGrid.worldToCell(outXZ[1]);
+            if (BuildGrid.inBounds(bx, bz) && gw.grid.at(bx, bz) != null) {
+                gx = bx;
+                gz = bz;
+            }
+        }
         input.hoverGx = gx;
         input.hoverGz = gz;
         int cell = gz * BuildGrid.N + gx;
@@ -1093,6 +1119,7 @@ public class HudView extends View {
             case A_START_WAVE: input.push(new Cmd(Cmd.START_WAVE)); break;
             case A_REPAIR_ALL: input.push(new Cmd(Cmd.REPAIR_ALL)); break;
             case A_BUY_AMMO: input.push(new Cmd(Cmd.BUY_AMMO)); break;
+            case A_ROTATE: input.push(new Cmd(Cmd.ROTATE)); break;
             case A_PICK_BUILD: input.buildType = p; break;
             case A_UPGRADE: input.push(new Cmd(Cmd.UPGRADE_SELECTED)); break;
             case A_REPAIR: input.push(new Cmd(Cmd.REPAIR_SELECTED)); break;

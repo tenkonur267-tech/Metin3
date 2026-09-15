@@ -8,6 +8,8 @@ public class InputState {
     public volatile boolean firing;
     public volatile boolean buildMode;
     public volatile int buildType = Balance.S_WALL;
+    /** Yeni yapıların çeyrek tur dönüşü (0..3). */
+    public volatile int buildRotation;
     public volatile boolean paused;
     /** İnşa modunda parmağın altındaki hücre (hayalet önizleme için). */
     public volatile int hoverGx = -1;

@@ -10,6 +10,10 @@ public class Structure {
     public float x, z;
     public float hp, maxHp;
     public boolean alive = true;
+    /** Çeyrek tur cinsinden yerleştirme dönüşü (0..3). Duvarlarda kullanılmaz. */
+    public int rotation;
+    /** Duvarın komşu maskesi: bit0 +X, bit1 -X, bit2 +Z, bit3 -Z. */
+    public int wallMask;
 
     /** Kule namlusunun bakış açısı ve atış sayacı. */
     public float yaw;
@@ -22,6 +26,10 @@ public class Structure {
     public float repairCarry;  // küsuratlı tamir birikimi
 
     public Structure(int type, int level, int gx, int gz, float structHpBonus) {
+        this(type, level, gx, gz, structHpBonus, 0);
+    }
+
+    public Structure(int type, int level, int gx, int gz, float structHpBonus, int rotation) {
         this.type = type;
         this.level = level;
         this.gx = gx;
@@ -31,6 +39,18 @@ public class Structure {
         this.maxHp = def().hpAt(level) * structHpBonus;
         this.hp = maxHp;
         this.buildAnim = 1f;
+        this.rotation = rotation & 3;
+    }
+
+    /** Görsel dönüş açısı (radyan). */
+    public float placementYaw() {
+        return rotation * (MathX.PI * 0.5f);
+    }
+
+    /** Seviye büyüdükçe yapı biraz irileşir (duvar/tuzak hariç). */
+    public float levelScale() {
+        if (type == Balance.S_WALL || type == Balance.S_SPIKE) return 1f;
+        return 1f + 0.045f * (level - 1);
     }
 
     public Balance.StructDef def() {

@@ -96,6 +96,7 @@ public final class SaveStore {
                 js.put("x", s.gx);
                 js.put("z", s.gz);
                 js.put("hp", s.hp);
+                js.put("r", s.rotation);
                 arr.put(js);
             }
             root.put("structures", arr);
@@ -189,7 +190,7 @@ public final class SaveStore {
                         continue;
                     }
                     Structure s = w.placeFree(type, js.optInt("x", 0), js.optInt("z", 0),
-                            Math.max(1, js.optInt("l", 1)));
+                            Math.max(1, js.optInt("l", 1)), js.optInt("r", 0));
                     if (s != null) {
                         s.hp = Math.min(s.maxHp, (float) js.optDouble("hp", s.maxHp));
                         s.buildAnim = 0f;
@@ -201,6 +202,7 @@ public final class SaveStore {
             w.camera.targetX = 0f;
             w.camera.targetZ = 7f;
             w.camera.snapToTarget();
+            w.refreshAllWalls();
             w.flow.compute(w.grid);
             w.message("Kayıt yüklendi — " + (wave + 1) + ". dalgaya hazırlan", 3.5f);
             return true;

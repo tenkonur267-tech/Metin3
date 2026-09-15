@@ -109,6 +109,9 @@ public class GameWorld {
         camera.targetX = player.x;
         camera.targetZ = player.z;
         camera.snapToTarget();
+        for (int gz = 0; gz < BuildGrid.N; gz++) {
+            for (int gx = 0; gx < BuildGrid.N; gx++) refreshWall(gx, gz);
+        }
         flow.compute(grid);
         input.buildMode = true;   // oyun inşa moduyla başlasın: mekanik kendini anlatır
         input.buildType = Balance.S_WALL;
@@ -141,10 +144,15 @@ public class GameWorld {
     }
 
     public Structure placeFree(int type, int gx, int gz, int level) {
+        return placeFree(type, gx, gz, level, 0);
+    }
+
+    public Structure placeFree(int type, int gx, int gz, int level, int rotation) {
         if (grid.canPlace(gx, gz) != BuildGrid.OK) return null;
-        Structure s = new Structure(type, level, gx, gz, player.structHpBonus());
+        Structure s = new Structure(type, level, gx, gz, player.structHpBonus(), rotation);
         structures.add(s);
         grid.set(gx, gz, s);
+        refreshWallsAround(gx, gz);
         flowDirty = true;
         return s;
     }
@@ -181,9 +189,11 @@ public class GameWorld {
         float inX = input.moveX;
         float inZ = input.moveZ;
         // Joystick, kameranın baktığı yöne göre yorumlanır.
+        // Kamera ileri yönü F=(sin,cos); ekranın sağı R = F x yukarı = (-cos, sin).
+        // (Eskiden R'nin tersi kullanılıyordu: sağa basınca karakter sola gidiyordu.)
         float cs = (float) Math.cos(camera.yaw), sn = (float) Math.sin(camera.yaw);
-        float wx = inX * cs + inZ * sn;
-        float wz = -inX * sn + inZ * cs;
+        float wx = -inX * cs + inZ * sn;
+        float wz = inX * sn + inZ * cs;
         boolean firing = input.firing && !input.buildMode;
 
         player.update(this, dt, wx, wz, firing);
@@ -246,6 +256,7 @@ public class GameWorld {
                 case Cmd.SELL_SELECTED: sellSelected(); break;
                 case Cmd.REPAIR_SELECTED: repairSelected(); break;
                 case Cmd.REPAIR_ALL: repairAll(); break;
+                case Cmd.ROTATE: rotateSelection(); break;
                 case Cmd.START_WAVE: waves.skipPrepare(); break;
                 case Cmd.SKILL_UP: doSkillUp(c.a); break;
                 case Cmd.WEAPON_UP: upgradeWeapon(c.a); break;
@@ -791,6 +802,43 @@ public class GameWorld {
         }
     }
 
+    /** Duvarın komşu maskesi: bit0 +X, bit1 -X, bit2 +Z, bit3 -Z. */
+    public int wallMaskAt(int gx, int gz) {
+        int m = 0;
+        if (connects(gx + 1, gz)) m |= 1;
+        if (connects(gx - 1, gz)) m |= 2;
+        if (connects(gx, gz + 1)) m |= 4;
+        if (connects(gx, gz - 1)) m |= 8;
+        return m;
+    }
+
+    private boolean connects(int gx, int gz) {
+        Structure s = grid.at(gx, gz);
+        return s != null && s.blocks();
+    }
+
+    /** Bütün duvarların hizasını yeniden hesaplar (kayıt yüklendikten sonra). */
+    public void refreshAllWalls() {
+        for (int gz = 0; gz < BuildGrid.N; gz++) {
+            for (int gx = 0; gx < BuildGrid.N; gx++) refreshWall(gx, gz);
+        }
+    }
+
+    /** Bir hücre değişince o hücre ve dört komşusundaki duvarlar yeniden hizalanır. */
+    public void refreshWallsAround(int gx, int gz) {
+        refreshWall(gx, gz);
+        refreshWall(gx + 1, gz);
+        refreshWall(gx - 1, gz);
+        refreshWall(gx, gz + 1);
+        refreshWall(gx, gz - 1);
+    }
+
+    private void refreshWall(int gx, int gz) {
+        Structure s = grid.at(gx, gz);
+        if (s == null || s.type != Balance.S_WALL) return;
+        s.wallMask = wallMaskAt(gx, gz);
+    }
+
     /** Verilen noktanın etrafındaki (3x3 hücre) en yakın engelleyici yapı. */
     public Structure blockerNear(float x, float z) {
         int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
@@ -837,6 +885,7 @@ public class GameWorld {
         particles.smoke(s.x, 0.6f, s.z, 8, 0x555048, 0.9f);
         audio.playStructDown();
         grid.clear(s.gx, s.gz);
+        refreshWallsAround(s.gx, s.gz);
         if (selected == s) selected = null;
         flowDirty = true;
     }
@@ -868,15 +917,37 @@ public class GameWorld {
             return;
         }
         player.scrap -= cost;
-        Structure s = new Structure(type, 1, gx, gz, player.structHpBonus());
+        Structure s = new Structure(type, 1, gx, gz, player.structHpBonus(), input.buildRotation);
         structures.add(s);
         grid.set(gx, gz, s);
+        refreshWallsAround(gx, gz);
         flowDirty = true;
         structuresBuilt++;
         selected = s;
         particles.dust(cx, 0.1f, cz, 12);
         audio.playBuild();
         addText(cx, 1.6f, cz, "-" + cost, 0xFFAB91, 0.8f, 0.85f);
+    }
+
+    /**
+     * Seçili yapıyı çeyrek tur döndürür; seçili yapı yoksa bundan sonra
+     * kurulacak yapıların dönüşünü değiştirir.
+     */
+    public void rotateSelection() {
+        Structure s = selected;
+        if (s != null && s.alive && s.type != Balance.S_WALL) {
+            s.rotation = (s.rotation + 1) & 3;
+            audio.playClick();
+            message(s.def().name + " döndürüldü", 1f);
+            return;
+        }
+        if (s != null && s.type == Balance.S_WALL) {
+            message("Duvarlar komşularına göre kendiliğinden hizalanır", 1.8f);
+            return;
+        }
+        input.buildRotation = (input.buildRotation + 1) & 3;
+        audio.playClick();
+        message("Yerleştirme yönü: " + (input.buildRotation * 90) + "°", 1.2f);
     }
 
     public void selectAt(int gx, int gz) {
@@ -924,6 +995,7 @@ public class GameWorld {
         player.scrap += value;
         s.alive = false;
         grid.clear(s.gx, s.gz);
+        refreshWallsAround(s.gx, s.gz);
         structures.remove(s);
         selected = null;
         flowDirty = true;

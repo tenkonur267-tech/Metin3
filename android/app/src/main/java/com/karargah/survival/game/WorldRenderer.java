@@ -167,17 +167,24 @@ public class WorldRenderer {
             float db = MathX.lerp(0.5f, 1f, hpf);
             float emis = s.flash * 2.2f + s.chargeGlow * 0.25f;
 
-            M4.trs(model, s.x, (rise - 1f) * 1.6f, s.z, 0f, 1f, rise, 1f);
-            Mesh base = models.structBase[s.type][Math.min(5, Math.max(1, s.level))];
+            int lv = Math.min(5, Math.max(1, s.level));
+            float ls = s.levelScale();
+            // Duvarlar komşularına göre birleşen parçalarla çizilir, diğer
+            // yapılar oyuncunun seçtiği dönüşle.
+            Mesh base = s.type == Balance.S_WALL
+                    ? models.wallMesh[lv][s.wallMask & 15]
+                    : models.structBase[s.type][lv];
+            float yaw = s.type == Balance.S_WALL ? 0f : s.placementYaw();
+            M4.trs(model, s.x, (rise - 1f) * 1.6f, s.z, yaw, ls, rise * ls, ls);
             if (w.selected == s) {
                 r.drawHighlighted(base, model, dr, dg, db, 1f, emis, 0.16f, 0.30f, 0.16f, 1f);
             } else {
                 r.draw(base, model, dr, dg, db, 1f, emis);
             }
 
-            Mesh head = models.structHead[s.type];
+            Mesh head = models.structHead[s.type][lv];
             if (head != null) {
-                M4.trs(model, s.x, (rise - 1f) * 1.6f, s.z, s.yaw, 1f, rise, 1f);
+                M4.trs(model, s.x, (rise - 1f) * 1.6f, s.z, s.yaw, ls, rise * ls, ls);
                 r.draw(head, model, dr, dg, db, 1f, emis);
             }
         }
@@ -242,15 +249,21 @@ public class WorldRenderer {
                 1f + flash, 1f - flash * 0.35f, 1f - flash * 0.35f, 1f, flash * 0.5f);
 
         if (p.alive) {
-            // silah: sağ el kemiğine bağlı
-            System.arraycopy(bones, Models.BONE_ARM_R * 16, tmp2, 0, 16);
-            M4.mul(tmp, model, tmp2);
-            M4.translateM(tmp, 0, 0.38f, 1.06f, 0.16f);
             Mesh gun = models.weapons[p.currentWeapon];
             if (gun != null) {
-                float rec = p.recoil * 0.12f;
-                M4.translateM(tmp, 0, 0f, 0f, -rec);
-                r.draw(gun, tmp, 1f, 1f, 1f, 1f, p.muzzleTimer > 0f ? 1.4f : 0f);
+                // Silah sağ el kemiğine bağlanır. Kolun öne savrulma açısı
+                // (armRx/armRz) burada geri alınmazsa namlu yukarı bakar.
+                System.arraycopy(bones, Models.BONE_ARM_R * 16, tmp2, 0, 16);
+                M4.mul(tmp, model, tmp2);
+                M4.translateM(tmp, 0, 0.38f, 1.04f, 0.06f);   // dinlenme pozundaki el
+                M4.rotateM(tmp, 0, -armRz, 0f, 0f, 1f);
+                M4.rotateM(tmp, 0, -armRx, 1f, 0f, 0f);
+                M4.rotateM(tmp, 0, -4f, 1f, 0f, 0f);          // hafif aşağı eğim
+                M4.translateM(tmp, 0, 0f, 0f, -p.recoil * 0.12f);
+                int lvl = p.weaponLevel[p.currentWeapon];
+                float up = (lvl - 1) * 0.06f;                 // geliştirildikçe parlar
+                r.draw(gun, tmp, 1f + up, 1f + up * 0.7f, 1f - up * 0.3f, 1f,
+                        p.muzzleTimer > 0f ? 1.4f : up * 0.5f);
             }
         }
     }
@@ -291,9 +304,15 @@ public class WorldRenderer {
         // nişan alırken kollar ileride
         float aimDiff = MathX.angleDiff(p.yaw, p.aimYaw) / MathX.DEG;
         float recoilKick = p.recoil * 18f;
-        setBone(Models.BONE_ARM_R, pv[4], -78f + recoilKick, aimDiff * 0.6f, -12f, 0f, bob, 0f);
-        setBone(Models.BONE_ARM_L, pv[3], -68f + recoilKick * 0.6f, aimDiff * 0.6f, 20f, 0f, bob, 0f);
+        armRx = -78f + recoilKick;
+        armRz = -12f;
+        armRy = aimDiff * 0.6f;
+        setBone(Models.BONE_ARM_R, pv[4], armRx, armRy, armRz, 0f, bob, 0f);
+        setBone(Models.BONE_ARM_L, pv[3], -68f + recoilKick * 0.6f, armRy, 20f, 0f, bob, 0f);
     }
+
+    /** Sağ kolun o karedeki açıları; silahı ele oturturken geri alınır. */
+    private float armRx, armRy, armRz;
 
     private void animateZombie(CharModel cm, Zombie z, float deathTilt) {
         identityBones();
@@ -412,10 +431,15 @@ public class WorldRenderer {
         r.draw(models.unitCell, model, ok ? 0.3f : 1f, ok ? 1f : 0.3f, 0.35f, 0.45f, 0.6f);
 
         if (code == BuildGrid.OK) {
-            Mesh ghost = models.structBase[type][1];
-            M4.trs(model, cx, 0f, cz, 0f, 1f);
+            // Hayalet önizleme: duvarsa komşularına göre birleşmiş hâli görünür
+            Mesh ghost = type == Balance.S_WALL
+                    ? models.wallMesh[1][w.wallMaskAt(gx, gz)]
+                    : models.structBase[type][1];
+            float gyaw = type == Balance.S_WALL
+                    ? 0f : (w.input.buildRotation & 3) * MathX.PI * 0.5f;
+            M4.trs(model, cx, 0f, cz, gyaw, 1f);
             r.draw(ghost, model, ok ? 0.6f : 1.2f, ok ? 1.2f : 0.5f, ok ? 0.8f : 0.5f, 0.45f, 0.35f);
-            Mesh head = models.structHead[type];
+            Mesh head = models.structHead[type][1];
             if (head != null) {
                 r.draw(head, model, ok ? 0.6f : 1.2f, ok ? 1.2f : 0.5f, ok ? 0.8f : 0.5f, 0.45f, 0.35f);
             }
