@@ -1,7 +1,5 @@
 package com.karargah.survival.engine;
 
-import android.opengl.Matrix;
-
 import java.util.ArrayList;
 
 /**
@@ -61,32 +59,32 @@ public class MeshBuilder {
     }
 
     public MeshBuilder translate(float x, float y, float z) {
-        Matrix.translateM(mat, 0, x, y, z);
+        M4.translateM(mat, 0, x, y, z);
         return this;
     }
 
     public MeshBuilder rotateY(float deg) {
-        Matrix.rotateM(mat, 0, deg, 0, 1, 0);
+        M4.rotateM(mat, 0, deg, 0, 1, 0);
         return this;
     }
 
     public MeshBuilder rotateX(float deg) {
-        Matrix.rotateM(mat, 0, deg, 1, 0, 0);
+        M4.rotateM(mat, 0, deg, 1, 0, 0);
         return this;
     }
 
     public MeshBuilder rotateZ(float deg) {
-        Matrix.rotateM(mat, 0, deg, 0, 0, 1);
+        M4.rotateM(mat, 0, deg, 0, 0, 1);
         return this;
     }
 
     public MeshBuilder scale(float s) {
-        Matrix.scaleM(mat, 0, s, s, s);
+        M4.scaleM(mat, 0, s, s, s);
         return this;
     }
 
     public MeshBuilder scale(float x, float y, float z) {
-        Matrix.scaleM(mat, 0, x, y, z);
+        M4.scaleM(mat, 0, x, y, z);
         return this;
     }
 

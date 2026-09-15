@@ -116,6 +116,10 @@ python3 tools/check_shaders.py       # GLSL ES 3.00 shader derlemesi
 - `SimulationTest` oyunu çizimsiz olarak binlerce kare koşturur: dalgaların
   tıkanmadığını, sayıların bozulmadığını (NaN/negatif kaynak), inşa–geliştir–sat
   akışının ve denge tablolarının tutarlılığını doğrular.
+- `M4Test` matris matematiğini doğrular (matrisler bilerek saf Java'dır:
+  `android.opengl.Matrix` birim testlerinde boş döndüğü için mesh üretimi test
+  edilemezdi; uygulama geliştirme sırasında rastgele girdilerle Android'in
+  sürümüyle karşılaştırılıp birebir aynı olduğu doğrulandı).
 - `GeometryTest` prosedürel mesh üreticisini denetler: normaller birim
   uzunlukta mı, üçgen sarım yönü doğru mu, kapalı şekillerin yüzleri dışa
   bakıyor mu (ters sarım modelleri içten gösterir).

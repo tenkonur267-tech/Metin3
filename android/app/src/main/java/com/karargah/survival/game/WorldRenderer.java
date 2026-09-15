@@ -1,7 +1,5 @@
 package com.karargah.survival.game;
 
-import android.opengl.Matrix;
-
 import com.karargah.survival.engine.CharModel;
 import com.karargah.survival.engine.M4;
 import com.karargah.survival.engine.MathX;
@@ -247,11 +245,11 @@ public class WorldRenderer {
             // silah: sağ el kemiğine bağlı
             System.arraycopy(bones, Models.BONE_ARM_R * 16, tmp2, 0, 16);
             M4.mul(tmp, model, tmp2);
-            Matrix.translateM(tmp, 0, 0.38f, 1.06f, 0.16f);
+            M4.translateM(tmp, 0, 0.38f, 1.06f, 0.16f);
             Mesh gun = models.weapons[p.currentWeapon];
             if (gun != null) {
                 float rec = p.recoil * 0.12f;
-                Matrix.translateM(tmp, 0, 0f, 0f, -rec);
+                M4.translateM(tmp, 0, 0f, 0f, -rec);
                 r.draw(gun, tmp, 1f, 1f, 1f, 1f, p.muzzleTimer > 0f ? 1.4f : 0f);
             }
         }
@@ -261,17 +259,17 @@ public class WorldRenderer {
     private void setBone(int index, float[] pivot, float rx, float ry, float rz,
                          float ox, float oy, float oz) {
         int o = index * 16;
-        Matrix.setIdentityM(bones, o);
-        Matrix.translateM(bones, o, pivot[0] + ox, pivot[1] + oy, pivot[2] + oz);
-        if (ry != 0f) Matrix.rotateM(bones, o, ry, 0f, 1f, 0f);
-        if (rx != 0f) Matrix.rotateM(bones, o, rx, 1f, 0f, 0f);
-        if (rz != 0f) Matrix.rotateM(bones, o, rz, 0f, 0f, 1f);
-        Matrix.translateM(bones, o, -pivot[0], -pivot[1], -pivot[2]);
+        M4.setIdentity(bones, o);
+        M4.translateM(bones, o, pivot[0] + ox, pivot[1] + oy, pivot[2] + oz);
+        if (ry != 0f) M4.rotateM(bones, o, ry, 0f, 1f, 0f);
+        if (rx != 0f) M4.rotateM(bones, o, rx, 1f, 0f, 0f);
+        if (rz != 0f) M4.rotateM(bones, o, rz, 0f, 0f, 1f);
+        M4.translateM(bones, o, -pivot[0], -pivot[1], -pivot[2]);
     }
 
     private void identityBones() {
         for (int i = 0; i < Renderer3D.MAX_BONES; i++) {
-            Matrix.setIdentityM(bones, i * 16);
+            M4.setIdentity(bones, i * 16);
         }
     }
 
