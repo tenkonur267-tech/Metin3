@@ -28,8 +28,16 @@ jobs:
       - name: Gradle önbelleği
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Android SDK kur
+      - name: Android SDK hazırla
         uses: android-actions/setup-android@v3
+        with:
+          # Varsayılan paket listesi artık kaldırılmış olan 'tools' paketini
+          # kurmaya çalışıp hata veriyor; runner imajında SDK zaten var, sadece
+          # lisansların kabul edilmesi yeterli.
+          packages: ''
+
+      - name: SDK lisanslarını kabul et
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
       - name: Debug APK derle
         working-directory: android

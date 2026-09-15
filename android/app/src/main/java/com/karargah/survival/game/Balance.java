@@ -108,7 +108,7 @@ public final class Balance {
             new StructDef(S_CORE, KIND_CORE, "Reaktör", "◉",
                     "Üssünün kalbi. Düşerse her şey biter.",
                     0x4FC3F7, 0, 0, 3000f, 0.25f, true, 5,
-                    0, 0, 0, 0, 4f, 0),
+                    0, 0, 0, 0, 8f, 0),
             new StructDef(S_WALL, KIND_WALL, "Duvar", "▮",
                     "Zombileri yavaşlatır, yolu kapatır. Ucuz ve vazgeçilmez.",
                     0x9E9E8A, 18, 1, 340f, 0.85f, true, 5,
