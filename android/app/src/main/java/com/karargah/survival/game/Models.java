@@ -29,6 +29,9 @@ public class Models {
     public final Mesh[] weapons = new Mesh[Balance.WEAPONS.length];
     public CharModel player;
     public final CharModel[] zombies = new CharModel[Balance.ZOMBIES.length];
+    /** Yoldaş modelleri (rol başına). */
+    public final CharModel[] npcModels = new CharModel[Balance.NPC_COUNT];
+    public Mesh scrapPickup, corePickup;
 
     public void build() {
         buildGround();
@@ -185,6 +188,7 @@ public class Models {
             case Balance.S_REPAIR: return buildStation(b, level, 0x26A69A, true);
             case Balance.S_MED: return buildStation(b, level, 0xE57373, false);
             case Balance.S_COLLECTOR: return buildCollector(b, level);
+            case Balance.S_BARRACKS: return buildBarracks(b, level);
             default: return buildTurretBase(b, type, level);
         }
     }
@@ -575,6 +579,35 @@ public class Models {
         return b.build();
     }
 
+    private Mesh buildBarracks(MeshBuilder b, int level) {
+        b.shade(0x5A5348, 0.05f).boxGround(1.9f, 0.2f, 1.9f);
+        // kum torbası duvarlar
+        for (int i = -1; i <= 1; i++) {
+            b.shade(0x8D7B5B, 0.1f).push().translate(i * 0.6f, 0.2f, -0.75f)
+                    .boxGround(0.58f, 0.34f, 0.34f).pop();
+            b.shade(0x8D7B5B, 0.1f).push().translate(i * 0.6f, 0.54f, -0.75f)
+                    .boxGround(0.5f, 0.3f, 0.3f).pop();
+        }
+        // çadır gövdesi
+        b.color(0x4E5B45).push().translate(0f, 0.2f, 0.15f).boxGround(1.5f, 0.85f, 1.3f).pop();
+        b.color(0x3E4A33).push().translate(0f, 1.05f, 0.15f).rotateY(45f)
+                .pyramid(1.5f, 0.6f).pop();
+        b.color(0x2F3B2A).push().translate(0f, 0.45f, 0.82f)
+                .boxAt(0, 0, 0, 0.55f, 0.75f, 0.05f).pop();       // kapı
+        // bayrak: seviyeyle büyür
+        b.color(0x8D6E63).push().translate(-0.8f, 0.2f, -0.7f)
+                .cylinder(0.05f, 0.04f, 1.6f + level * 0.12f, 6).pop();
+        b.color(0xC62828).push().translate(-0.8f, 1.5f + level * 0.12f, -0.7f)
+                .boxAt(0.3f, 0, 0, 0.55f + level * 0.06f, 0.34f, 0.03f).pop();
+        // yatak/sandık: seviye kadar
+        for (int i = 0; i < level; i++) {
+            b.shade(0x6D4C41, 0.1f).push()
+                    .translate(0.55f - (i % 3) * 0.5f, 0.2f, 0.55f - (i / 3) * 0.45f)
+                    .boxGround(0.36f, 0.22f, 0.3f).pop();
+        }
+        return b.build();
+    }
+
     private Mesh buildCollector(MeshBuilder b, int level) {
         b.shade(0x4E4A42, 0.05f).boxGround(1.7f, 0.25f, 1.7f);
         b.color(levelTint(0xFFB74D, level)).push().translate(0f, 0.25f, 0f)
@@ -592,7 +625,11 @@ public class Models {
     // ---- karakterler ----------------------------------------------------
 
     private void buildCharacters() {
-        player = buildHuman();
+        player = buildHuman(0x37474F, 0x66BB6A, 0);
+        npcModels[Balance.NPC_GUARD] = buildHuman(0x3E4A33, 0x8BC34A, 1);
+        npcModels[Balance.NPC_ENGINEER] = buildHuman(0x4E5B66, 0xFFB74D, 2);
+        npcModels[Balance.NPC_SCAVENGER] = buildHuman(0x5D4037, 0xFFD54F, 3);
+        npcModels[Balance.NPC_MEDIC] = buildHuman(0x37474F, 0xE57373, 4);
         zombies[Balance.Z_WALKER] = buildZombie(Balance.Z_WALKER, 1f, false);
         zombies[Balance.Z_RUNNER] = buildZombie(Balance.Z_RUNNER, 0.94f, false);
         zombies[Balance.Z_BRUTE] = buildZombie(Balance.Z_BRUTE, 1.45f, true);
@@ -607,9 +644,13 @@ public class Models {
         return p;
     }
 
-    private CharModel buildHuman() {
+    /**
+     * İnsan karakter. flavor: 0 oyuncu, 1 muhafız, 2 mühendis (baret),
+     * 3 toplayıcı (kasket + çuval), 4 sağlıkçı (kızılhaç).
+     */
+    private CharModel buildHuman(int suit, int accent, int flavor) {
         MeshBuilder b = new MeshBuilder();
-        int suit = 0x37474F, accent = 0x66BB6A, skin = 0xD7A87C;
+        int skin = 0xD7A87C;
         // bacaklar
         b.bone(BONE_LEG_L).color(0x2E3B43).push().translate(-0.14f, 0.86f, 0f)
                 .boxAt(0, -0.43f, 0, 0.22f, 0.86f, 0.24f).pop();
@@ -624,15 +665,50 @@ public class Models {
                 .boxAt(0, 0, 0, 0.56f, 0.66f, 0.34f).pop();
         b.bone(BONE_TORSO).color(accent).push().translate(0f, 1.3f, 0.18f)
                 .boxAt(0, 0, 0, 0.3f, 0.26f, 0.06f).pop();
-        b.bone(BONE_TORSO).color(0x455A64).push().translate(0f, 1.46f, -0.2f)
-                .boxAt(0, 0, 0, 0.42f, 0.4f, 0.16f).pop();   // sırt çantası
+        b.bone(BONE_TORSO).color(flavor == 3 ? 0x795548 : 0x455A64).push()
+                .translate(0f, 1.46f, -0.2f)
+                .boxAt(0, 0, 0, 0.42f, flavor == 3 ? 0.52f : 0.4f, 0.16f).pop();   // sırt çantası
+        if (flavor == 2) {   // mühendis: sırtta alet
+            b.bone(BONE_TORSO).color(0xFFB74D).push().translate(0.16f, 1.5f, -0.3f)
+                    .rotateZ(28f).boxAt(0, 0, 0, 0.07f, 0.44f, 0.07f).pop();
+        }
+        if (flavor == 4) {   // sağlıkçı: yan çanta
+            b.bone(BONE_TORSO).color(0xECEFF1).push().translate(-0.32f, 1.06f, 0f)
+                    .boxAt(0, 0, 0, 0.16f, 0.2f, 0.22f).pop();
+            b.bone(BONE_TORSO).color(0xE53935).push().translate(-0.41f, 1.06f, 0f)
+                    .boxAt(0, 0, 0, 0.02f, 0.1f, 0.04f).pop();
+        }
         b.bone(BONE_TORSO).color(0x263238).push().translate(0f, 0.9f, 0f)
                 .boxAt(0, 0, 0, 0.5f, 0.16f, 0.32f).pop();   // kemer
         // kafa
         b.bone(BONE_HEAD).color(skin).push().translate(0f, 1.66f, 0f)
                 .boxAt(0, 0, 0, 0.3f, 0.3f, 0.3f).pop();
-        b.bone(BONE_HEAD).color(0x2E7D32).push().translate(0f, 1.82f, 0f)
-                .boxAt(0, 0, 0, 0.34f, 0.14f, 0.34f).pop();  // kask
+        switch (flavor) {
+            case 2:   // mühendis bareti
+                b.bone(BONE_HEAD).color(0xFFC107).push().translate(0f, 1.83f, 0f)
+                        .boxAt(0, 0, 0, 0.33f, 0.13f, 0.33f).pop();
+                b.bone(BONE_HEAD).color(0xFFA000).push().translate(0f, 1.79f, 0.17f)
+                        .boxAt(0, 0, 0, 0.3f, 0.05f, 0.1f).pop();
+                break;
+            case 3:   // kasket
+                b.bone(BONE_HEAD).color(0x6D4C41).push().translate(0f, 1.82f, 0f)
+                        .boxAt(0, 0, 0, 0.32f, 0.1f, 0.32f).pop();
+                b.bone(BONE_HEAD).color(0x5D4037).push().translate(0f, 1.79f, 0.2f)
+                        .boxAt(0, 0, 0, 0.3f, 0.04f, 0.14f).pop();
+                break;
+            case 4:   // sağlıkçı beresi + haç
+                b.bone(BONE_HEAD).color(0xECEFF1).push().translate(0f, 1.82f, 0f)
+                        .boxAt(0, 0, 0, 0.33f, 0.12f, 0.33f).pop();
+                b.bone(BONE_HEAD).color(0xE53935).push().translate(0f, 1.83f, 0.17f)
+                        .boxAt(0, 0, 0, 0.14f, 0.05f, 0.03f).pop();
+                b.bone(BONE_HEAD).color(0xE53935).push().translate(0f, 1.83f, 0.17f)
+                        .boxAt(0, 0, 0, 0.05f, 0.14f, 0.03f).pop();
+                break;
+            default:  // kask
+                b.bone(BONE_HEAD).color(flavor == 1 ? 0x33691E : 0x2E7D32).push()
+                        .translate(0f, 1.82f, 0f).boxAt(0, 0, 0, 0.34f, 0.14f, 0.34f).pop();
+                break;
+        }
         b.bone(BONE_HEAD).color(0x1B5E20).push().translate(0f, 1.72f, 0.16f)
                 .boxAt(0, 0, 0, 0.26f, 0.08f, 0.04f).pop();  // gözlük
         // kollar
@@ -768,28 +844,240 @@ public class Models {
     }
 
     // ---- silahlar (elde taşınan) ----------------------------------------
+    // Modeller kabza üstü (elin tuttuğu nokta) orijinde, namlu +Z yönünde
+    // olacak şekilde kurulur. Balance.WeaponDef.muzzleZ/muzzleY bu modellerin
+    // namlu ucunu gösterir; mermi tam oradan çıkar.
+
+    /** Oyuncu modelinde sağ elin durduğu nokta (silah buraya bağlanır). */
+    public static final float HAND_X = 0.38f;
+    public static final float HAND_Y = 1.04f;
+    public static final float HAND_Z = 0.06f;
+
+    private static final int METAL = 0x4A5257;
+    private static final int METAL_DARK = 0x2C3236;
+    private static final int POLYMER = 0x23282B;
+    private static final int WOOD = 0x6D4C41;
 
     private void buildWeapons() {
-        weapons[Balance.W_PISTOL] = gunMesh(0.34f, 0.1f, 0.09f, 0xB0BEC5, false, false);
-        weapons[Balance.W_SMG] = gunMesh(0.5f, 0.12f, 0.1f, 0x616161, true, false);
-        weapons[Balance.W_SHOTGUN] = gunMesh(0.78f, 0.12f, 0.12f, 0x6D4C41, false, true);
-        weapons[Balance.W_RIFLE] = gunMesh(0.82f, 0.13f, 0.11f, 0x4E5B45, true, false);
-        weapons[Balance.W_SNIPER] = gunMesh(1.05f, 0.11f, 0.1f, 0x37474F, false, true);
-        weapons[Balance.W_LAUNCHER] = gunMesh(0.95f, 0.2f, 0.2f, 0x5D4037, false, false);
+        weapons[Balance.W_PISTOL] = buildPistol();
+        weapons[Balance.W_SMG] = buildSmg();
+        weapons[Balance.W_SHOTGUN] = buildShotgun();
+        weapons[Balance.W_RIFLE] = buildRifle();
+        weapons[Balance.W_SNIPER] = buildSniper();
+        weapons[Balance.W_LAUNCHER] = buildLauncher();
     }
 
-    private Mesh gunMesh(float len, float h, float w, int color, boolean mag, boolean scope) {
+    /** Kabza: orijinden aşağı-geri doğru eğimli. */
+    private void gunGrip(MeshBuilder b, int color, float angle, float len, float w) {
+        b.color(color).push().translate(0f, -0.02f, -0.02f).rotateX(angle)
+                .boxAt(0, -len * 0.5f, 0, w, len, 0.13f).pop();
+        b.color(METAL_DARK).push().translate(0f, -0.02f, -0.02f).rotateX(angle)
+                .boxAt(0, -len, 0, w + 0.01f, 0.04f, 0.14f).pop();
+    }
+
+    /** Tetik korkuluğu. */
+    private void triggerGuard(MeshBuilder b, float z) {
+        b.color(METAL_DARK);
+        b.boxAt(0f, -0.045f, z, 0.045f, 0.03f, 0.17f);
+        b.boxAt(0f, -0.13f, z + 0.005f, 0.045f, 0.16f, 0.03f);
+        b.boxAt(0f, -0.09f, z - 0.075f, 0.045f, 0.1f, 0.03f);
+        b.color(0x8D8D8D).boxAt(0f, -0.075f, z - 0.02f, 0.03f, 0.075f, 0.025f);
+    }
+
+    /** Üstte nişangâh rayı (dişli görünüm). */
+    private void topRail(MeshBuilder b, float z0, float len, float y, float w) {
+        b.color(METAL_DARK).boxAt(0f, y, z0 + len * 0.5f, w, 0.022f, len);
+        int n = Math.max(3, (int) (len / 0.07f));
+        for (int i = 0; i < n; i++) {
+            b.color(0x3A4247).boxAt(0f, y + 0.018f, z0 + 0.03f + i * (len / n),
+                    w * 0.85f, 0.018f, 0.028f);
+        }
+    }
+
+    private void frontSight(MeshBuilder b, float z, float y) {
+        b.color(METAL_DARK).boxAt(0f, y + 0.045f, z, 0.02f, 0.075f, 0.03f);
+        b.color(METAL_DARK).boxAt(0f, y + 0.02f, z, 0.07f, 0.03f, 0.035f);
+    }
+
+    private void rearSight(MeshBuilder b, float z, float y) {
+        b.color(METAL_DARK).boxAt(-0.035f, y + 0.04f, z, 0.022f, 0.06f, 0.03f);
+        b.color(METAL_DARK).boxAt(0.035f, y + 0.04f, z, 0.022f, 0.06f, 0.03f);
+    }
+
+    /** Eğimli şarjör. */
+    private void magazine(MeshBuilder b, int color, float z, float len, float tilt, float w) {
+        b.color(color).push().translate(0f, -0.04f, z).rotateX(tilt)
+                .boxAt(0, -len * 0.5f, 0, w, len, 0.1f).pop();
+        b.color(METAL_DARK).push().translate(0f, -0.04f, z).rotateX(tilt)
+                .boxAt(0, -len, 0, w + 0.012f, 0.03f, 0.11f).pop();
+    }
+
+    private Mesh buildPistol() {
         MeshBuilder b = new MeshBuilder();
         b.bone(BONE_EXTRA);
-        b.color(color).boxAt(0, 0, len * 0.35f, w, h, len);
-        b.color(MathX.mixColor(color, 0x000000, 0.45f)).boxAt(0, -h * 0.55f, 0f, w * 0.8f, h * 1.5f, w * 1.4f);
-        b.color(0x263238).boxAt(0, 0.01f, len * 0.9f, w * 0.7f, h * 0.7f, len * 0.25f);
-        if (mag) {
-            b.color(0x37474F).boxAt(0, -h * 1.1f, len * 0.25f, w * 0.7f, h * 1.8f, w);
+        // sürgü + gövde
+        b.color(0x656D72).boxAt(0f, 0.065f, 0.19f, 0.085f, 0.11f, 0.42f);
+        b.color(0x7C858B).boxAt(0f, 0.115f, 0.19f, 0.07f, 0.02f, 0.42f);   // üst pah
+        b.color(METAL_DARK).boxAt(0f, 0.02f, 0.13f, 0.09f, 0.06f, 0.3f);   // alt gövde
+        // namlu ucu
+        b.color(METAL_DARK).push().translate(0f, 0.07f, 0.4f).rotateX(90f)
+                .cylinder(0.026f, 0.026f, 0.05f, 8).pop();
+        // nişangâh
+        b.color(METAL_DARK).boxAt(0f, 0.125f, 0.36f, 0.018f, 0.022f, 0.02f);
+        b.color(METAL_DARK).boxAt(-0.028f, 0.125f, 0.03f, 0.016f, 0.022f, 0.022f);
+        b.color(METAL_DARK).boxAt(0.028f, 0.125f, 0.03f, 0.016f, 0.022f, 0.022f);
+        triggerGuard(b, 0.05f);
+        gunGrip(b, POLYMER, 14f, 0.3f, 0.085f);
+        return b.build();
+    }
+
+    private Mesh buildSmg() {
+        MeshBuilder b = new MeshBuilder();
+        b.bone(BONE_EXTRA);
+        b.color(0x3B4145).boxAt(0f, 0.06f, 0.2f, 0.095f, 0.14f, 0.52f);     // gövde
+        b.color(METAL_DARK).boxAt(0f, 0.115f, 0.12f, 0.06f, 0.05f, 0.2f);   // kurma kolu yuvası
+        b.color(0x8A9196).boxAt(0.06f, 0.09f, 0.16f, 0.03f, 0.04f, 0.09f);  // kurma kolu
+        // namlu kılıfı (havalandırma delikleri)
+        b.color(METAL).push().translate(0f, 0.07f, 0.55f).rotateX(90f)
+                .cylinder(0.05f, 0.05f, 0.18f, 8).pop();
+        for (int i = 0; i < 3; i++) {
+            b.color(METAL_DARK).boxAt(0f, 0.115f, 0.5f + i * 0.055f, 0.06f, 0.02f, 0.025f);
         }
-        if (scope) {
-            b.color(0x212121).boxAt(0, h * 0.85f, len * 0.3f, w * 0.55f, h * 0.7f, len * 0.35f);
+        b.color(METAL_DARK).push().translate(0f, 0.07f, 0.66f).rotateX(90f)
+                .cylinder(0.028f, 0.028f, 0.07f, 8).pop();
+        frontSight(b, 0.68f, 0.09f);
+        rearSight(b, 0.08f, 0.1f);
+        topRail(b, 0.12f, 0.3f, 0.135f, 0.05f);
+        // katlanır dipçik
+        b.color(METAL_DARK).boxAt(-0.045f, 0.07f, -0.14f, 0.022f, 0.03f, 0.26f);
+        b.color(METAL_DARK).boxAt(0.045f, 0.07f, -0.14f, 0.022f, 0.03f, 0.26f);
+        b.color(POLYMER).boxAt(0f, 0.07f, -0.27f, 0.13f, 0.09f, 0.035f);
+        triggerGuard(b, 0.06f);
+        gunGrip(b, 12f, 0.3f, 0.09f);
+        magazine(b, POLYMER, 0.22f, 0.34f, 6f, 0.075f);
+        return b.build();
+    }
+
+    private void gunGrip(MeshBuilder b, float angle, float len, float w) {
+        gunGrip(b, POLYMER, angle, len, w);
+    }
+
+    private Mesh buildShotgun() {
+        MeshBuilder b = new MeshBuilder();
+        b.bone(BONE_EXTRA);
+        b.color(METAL_DARK).boxAt(0f, 0.06f, 0.16f, 0.1f, 0.13f, 0.42f);    // gövde
+        // namlu + altında fişek tüpü
+        b.color(0x3F464A).push().translate(0f, 0.09f, 0.35f).rotateX(90f)
+                .cylinder(0.042f, 0.042f, 0.66f, 9).pop();
+        b.color(0x565E63).push().translate(0f, 0.005f, 0.35f).rotateX(90f)
+                .cylinder(0.032f, 0.032f, 0.56f, 8).pop();
+        b.color(METAL_DARK).push().translate(0f, 0.09f, 0.96f).rotateX(90f)
+                .cylinder(0.05f, 0.05f, 0.06f, 9).pop();                    // ağız
+        // ahşap kundak ve pompa
+        b.shade(WOOD, 0.06f).boxAt(0f, 0.04f, 0.52f, 0.11f, 0.09f, 0.22f);  // pompa
+        for (int i = 0; i < 4; i++) {
+            b.color(0x5A3E33).boxAt(0f, 0.09f, 0.45f + i * 0.05f, 0.115f, 0.015f, 0.02f);
         }
+        b.shade(WOOD, 0.05f).push().translate(0f, 0.02f, -0.06f).rotateX(-6f)
+                .boxAt(0, 0f, -0.16f, 0.1f, 0.12f, 0.34f).pop();
+        b.color(METAL_DARK).push().translate(0f, 0.0f, -0.36f).rotateX(-6f)
+                .boxAt(0, 0f, 0f, 0.11f, 0.15f, 0.03f).pop();               // dipçik altlığı
+        frontSight(b, 0.93f, 0.11f);
+        triggerGuard(b, 0.04f);
+        return b.build();
+    }
+
+    private Mesh buildRifle() {
+        MeshBuilder b = new MeshBuilder();
+        b.bone(BONE_EXTRA);
+        b.color(0x4A5340).boxAt(0f, 0.06f, 0.18f, 0.095f, 0.145f, 0.48f);   // gövde
+        b.color(0x3A4232).boxAt(0f, 0.125f, 0.18f, 0.07f, 0.03f, 0.46f);
+        // el kundağı + delikler
+        b.color(0x39412F).boxAt(0f, 0.06f, 0.56f, 0.09f, 0.1f, 0.34f);
+        for (int i = 0; i < 4; i++) {
+            b.color(0x23291D).boxAt(0.046f, 0.07f, 0.45f + i * 0.07f, 0.02f, 0.045f, 0.035f);
+            b.color(0x23291D).boxAt(-0.046f, 0.07f, 0.45f + i * 0.07f, 0.02f, 0.045f, 0.035f);
+        }
+        // namlu + alev gizleyen
+        b.color(METAL_DARK).push().translate(0f, 0.07f, 0.72f).rotateX(90f)
+                .cylinder(0.026f, 0.026f, 0.24f, 8).pop();
+        b.color(0x1F2429).push().translate(0f, 0.07f, 0.95f).rotateX(90f)
+                .cylinder(0.042f, 0.038f, 0.09f, 8).pop();
+        frontSight(b, 0.83f, 0.1f);
+        rearSight(b, 0.02f, 0.13f);
+        topRail(b, 0.0f, 0.42f, 0.15f, 0.055f);
+        // dipçik
+        b.color(0x39412F).boxAt(0f, 0.06f, -0.12f, 0.085f, 0.11f, 0.18f);
+        b.color(0x39412F).push().translate(0f, 0.045f, -0.22f).rotateX(-4f)
+                .boxAt(0, 0f, -0.13f, 0.09f, 0.14f, 0.28f).pop();
+        b.color(METAL_DARK).boxAt(0f, 0.04f, -0.39f, 0.1f, 0.17f, 0.035f);
+        triggerGuard(b, 0.05f);
+        gunGrip(b, 16f, 0.3f, 0.09f);
+        magazine(b, 0x2E3428, 0.2f, 0.36f, 8f, 0.08f);
+        return b.build();
+    }
+
+    private Mesh buildSniper() {
+        MeshBuilder b = new MeshBuilder();
+        b.bone(BONE_EXTRA);
+        b.color(0x2F383D).boxAt(0f, 0.06f, 0.2f, 0.1f, 0.15f, 0.56f);       // gövde
+        b.color(0x39434A).boxAt(0f, 0.055f, 0.62f, 0.085f, 0.1f, 0.34f);    // el kundağı
+        // ağır namlu + ağız freni
+        b.color(METAL_DARK).push().translate(0f, 0.08f, 0.78f).rotateX(90f)
+                .cylinder(0.032f, 0.03f, 0.42f, 9).pop();
+        b.color(0x1F2429).push().translate(0f, 0.08f, 1.2f).rotateX(90f)
+                .cylinder(0.05f, 0.05f, 0.1f, 9).pop();
+        for (int i = 0; i < 2; i++) {
+            b.color(0x151A1D).boxAt(0f, 0.08f, 1.23f + i * 0.04f, 0.11f, 0.02f, 0.02f);
+        }
+        // dürbün
+        b.color(METAL_DARK).boxAt(-0.0f, 0.17f, 0.06f, 0.03f, 0.06f, 0.05f);
+        b.color(METAL_DARK).boxAt(-0.0f, 0.17f, 0.32f, 0.03f, 0.06f, 0.05f);
+        b.color(0x1B2226).push().translate(0f, 0.215f, 0.2f).rotateX(90f)
+                .cylinder(0.055f, 0.055f, 0.42f, 10).pop();
+        b.color(0x0E1215).push().translate(0f, 0.215f, 0.41f).rotateX(90f)
+                .cylinder(0.065f, 0.065f, 0.06f, 10).pop();
+        b.color(0x4DB6E6).push().translate(0f, 0.215f, 0.415f).rotateX(90f)
+                .cylinder(0.05f, 0.05f, 0.012f, 10).pop();                   // mercek parıltısı
+        // sehpa
+        for (int i = -1; i <= 1; i += 2) {
+            b.color(METAL_DARK).push().translate(i * 0.03f, -0.01f, 0.74f)
+                    .rotateZ(i * 26f).cylinder(0.014f, 0.011f, 0.22f, 5).pop();
+        }
+        // dipçik + yanak dayama
+        b.color(0x39434A).push().translate(0f, 0.05f, -0.2f).rotateX(-3f)
+                .boxAt(0, 0f, -0.16f, 0.095f, 0.14f, 0.34f).pop();
+        b.color(0x2F383D).boxAt(0f, 0.14f, -0.26f, 0.08f, 0.06f, 0.2f);
+        b.color(METAL_DARK).boxAt(0f, 0.03f, -0.41f, 0.1f, 0.19f, 0.035f);
+        triggerGuard(b, 0.05f);
+        gunGrip(b, 14f, 0.3f, 0.09f);
+        magazine(b, 0x2A3136, 0.22f, 0.22f, 4f, 0.075f);
+        return b.build();
+    }
+
+    private Mesh buildLauncher() {
+        MeshBuilder b = new MeshBuilder();
+        b.bone(BONE_EXTRA);
+        // ana tüp
+        b.color(0x4E5B45).push().translate(0f, 0.08f, 0.32f).rotateX(90f)
+                .cylinder(0.105f, 0.105f, 0.78f, 12).pop();
+        b.color(0x3A4433).push().translate(0f, 0.08f, 0.1f).rotateX(90f)
+                .cylinder(0.12f, 0.12f, 0.1f, 12).pop();
+        // arka huni
+        b.color(0x323B2C).push().translate(0f, 0.08f, -0.12f).rotateX(-90f)
+                .cylinder(0.105f, 0.15f, 0.22f, 12).pop();
+        // roket başlığı görünüyor
+        b.color(0xB5442B).push().translate(0f, 0.08f, 0.72f).rotateX(90f)
+                .cylinder(0.075f, 0.055f, 0.14f, 10).pop();
+        b.color(0xE0E0E0).push().translate(0f, 0.08f, 0.86f).rotateX(90f)
+                .cylinder(0.055f, 0.0f, 0.1f, 10).pop();
+        // nişan düzeneği ve kollar
+        b.color(METAL_DARK).boxAt(0f, 0.2f, 0.18f, 0.05f, 0.09f, 0.14f);
+        b.color(0x1B2226).boxAt(0f, 0.255f, 0.18f, 0.07f, 0.03f, 0.16f);
+        b.color(POLYMER).push().translate(0f, -0.02f, 0.42f).rotateX(18f)
+                .boxAt(0, -0.14f, 0, 0.075f, 0.28f, 0.1f).pop();            // ön tutamak
+        triggerGuard(b, 0.06f);
+        gunGrip(b, 14f, 0.3f, 0.09f);
         return b.build();
     }
 
@@ -821,6 +1109,25 @@ public class Models {
         b = new MeshBuilder();
         b.color(0x4FC3F7).sphere(1f, 12, 8);
         coreOrb = b.build();
+
+        // yere düşen hurda yığını
+        b = new MeshBuilder();
+        b.shade(0xB0A08A, 0.15f).boxAt(0f, 0.1f, 0f, 0.3f, 0.16f, 0.26f);
+        b.shade(0x8D7F6B, 0.15f).push().translate(0.1f, 0.2f, 0.06f).rotateY(28f)
+                .boxAt(0, 0, 0, 0.22f, 0.1f, 0.2f).pop();
+        b.color(0xFFD54F).push().translate(-0.1f, 0.22f, -0.06f).rotateY(-18f)
+                .boxAt(0, 0, 0, 0.16f, 0.08f, 0.14f).pop();
+        b.color(0xCFA23C).push().translate(0f, 0.3f, 0f).rotateY(40f)
+                .cylinder(0.05f, 0.05f, 0.1f, 6).pop();
+        scrapPickup = b.build();
+
+        // enerji çekirdeği
+        b = new MeshBuilder();
+        b.color(0x4DD0E1).push().translate(0f, 0.26f, 0f).scale(1f, 1.5f, 1f)
+                .sphere(0.17f, 6, 4).pop();
+        b.color(0xB2EBF2).push().translate(0f, 0.26f, 0f).rotateY(45f)
+                .cylinder(0.1f, 0.1f, 0.04f, 4).pop();
+        corePickup = b.build();
 
         // zombi doğma kapısı
         b = new MeshBuilder();

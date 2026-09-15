@@ -29,6 +29,17 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
   ayrıca dalga ilerledikçe çıkan güçlendirilmiş (elit) türevler.
 - **Akıllı yol bulma:** zombiler Dijkstra tabanlı akış alanıyla en ucuz yolu
   arar; yol kapalıysa en zayıf duvarı kırmayı seçer. Yani labirent kurabilirsin.
+- **Yoldaş NPC'ler:** Kışla kurup dört rolde yoldaş alırsın — muhafız, mühendis,
+  toplayıcı, sağlıkçı. EKİP panelinden emir verirsin (takip et, burayı tut,
+  reaktörü koru, ganimet topla, yapıları onar, bölgeye saldır, geri çekil);
+  TUT/SALDIR için haritada nokta seçersin. Emir dışında da akıllıdırlar:
+  A* ile duvarları dolaşır (takılmazlar), ateş hattı kapalıysa ateş etmez,
+  canları azalınca kendiliğinden geri çekilip iyileşir, rollerinin işini
+  kendiliğinden yapar ve üssün durumunu değerlendirip öneride bulunurlar
+  ("enerji açığın var", "batı taraf savunmasız", "reaktör ağır hasarlı"...).
+- **Yere düşen ganimet:** Ölen zombiler hurda (boss ayrıca enerji çekirdeği)
+  düşürür. Yaklaşınca kendiliğinden çekilir, toplayıcı yoldaş senin için
+  toplar, dalga bitince sahada kalanlar otomatik toplanır.
 - **Kayıt:** oyun otomatik kaydedilir, ana menüden "Devam Et" ile sürdürülür.
 
 ## Kontroller (dokunmatik)
@@ -41,6 +52,7 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
 | Kamera | Sağ yarıda sürükle, iki parmakla yakınlaştır |
 | İnşa modu | Sağ üstteki "İNŞA MODU" düğmesi |
 | Yapı kurma | İnşa modunda alttan yapı seç, ızgaraya dokun (sürükleyerek seri dizebilirsin) |
+| Ekip | Sağdaki EKİP düğmesi paneli açar: yoldaş al, emir ver |
 | Döndürme | Soldaki YÖN düğmesi yeni yapının yönünü, bir yapı seçiliyken onun yönünü çevirir (duvarlar kendiliğinden hizalanır) |
 | Geliştir / onar / sat | Kurulu bir yapıya dokun, sağdaki panelden seç |
 
@@ -93,7 +105,11 @@ android/app/src/main/java/com/karargah/survival/
 │   ├── Balance.java         bütün denge verileri tek dosyada
 │   ├── GameWorld.java       ana döngü, kuleler, hasar, ekonomi
 │   ├── Zombie.java / Player.java / Structure.java / Projectile.java
-│   ├── FlowField.java       Dijkstra tabanlı yol bulma
+│   ├── FlowField.java       zombiler için Dijkstra akış alanı
+│   ├── PathFinder.java      yoldaşlar için A* (duvarları dolaşır)
+│   ├── Npc.java             yoldaş yapay zekâsı, emirler, rol işleri
+│   ├── Advisor.java         üssü değerlendirip öneri veren yoldaş aklı
+│   ├── Pickup.java          yere düşen hurda/çekirdek
 │   ├── WaveManager.java     dalga kadroları ve hazırlık süresi
 │   ├── Models.java          bütün 3B modeller kodla üretilir
 │   ├── WorldRenderer.java   sahneyi çizer, iskelet animasyonu

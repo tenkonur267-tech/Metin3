@@ -31,6 +31,8 @@ public class Zombie {
     public boolean removeMe;
     public Structure targetStruct;
     public boolean targetingPlayer;
+    /** Oyuncu yerine bir yoldaşı hedefliyorsa. */
+    public Npc targetNpc;
     /** Hedef, yol üstündeki engel değil de uzaktan dövülen bir yapıysa true. */
     private boolean rangedLocked;
     public float specialCd;
@@ -64,6 +66,7 @@ public class Zombie {
         this.deadTime = 0f;
         this.animPhase = MathX.rnd(0f, MathX.TAU);
         this.targetStruct = null;
+        this.targetNpc = null;
         this.rangedLocked = false;
         this.slowFactor = 1f;
         this.slowTimer = 0f;
@@ -190,16 +193,30 @@ public class Zombie {
 
     private void chooseTarget(GameWorld w, float dt) {
         Player p = w.player;
-        float dp = MathX.dist(x, z, p.x, p.z);
         float aggro = type == Balance.Z_RUNNER ? 14f : (isBoss() ? 12f : 8.5f);
-        boolean playerAlive = p.alive;
 
-        // Oyuncu yakınsa ve görüş alanındaysa ona yönel.
-        if (playerAlive && dp < aggro) {
-            targetingPlayer = true;
+        // En yakın canlı dost: oyuncu ya da yoldaş.
+        float dp = p.alive ? MathX.dist(x, z, p.x, p.z) : Float.MAX_VALUE;
+        Npc bestNpc = null;
+        float dn = Float.MAX_VALUE;
+        for (int i = 0; i < w.npcs.size(); i++) {
+            Npc n = w.npcs.get(i);
+            if (!n.alive || n.downed) continue;
+            float d = MathX.dist(x, z, n.x, n.z);
+            if (d < dn) {
+                dn = d;
+                bestNpc = n;
+            }
+        }
+
+        if (Math.min(dp, dn) < aggro) {
+            boolean chooseNpc = dn < dp;
+            targetingPlayer = !chooseNpc;
+            targetNpc = chooseNpc ? bestNpc : null;
             targetStruct = null;
-            float reach = radius() + Balance.PLAYER_RADIUS + (def.rangedRange > 0 ? def.rangedRange : 0.55f);
-            if (dp <= reach) {
+            float reach = radius() + Balance.PLAYER_RADIUS
+                    + (def.rangedRange > 0 ? def.rangedRange : 0.55f);
+            if (Math.min(dp, dn) <= reach) {
                 state = ST_ATTACK;
             } else if (state == ST_ATTACK) {
                 state = ST_WALK;
@@ -207,6 +224,7 @@ public class Zombie {
             return;
         }
         targetingPlayer = false;
+        targetNpc = null;
 
         // Öfke modunda uzaktan yapı dövmek bırakılır; herkes reaktöre yürür.
         boolean rage = w.waves.rage;
@@ -242,7 +260,10 @@ public class Zombie {
 
     private void handleAttack(GameWorld w, float dt) {
         float tx, tz;
-        if (targetingPlayer) {
+        if (targetNpc != null && targetNpc.alive && !targetNpc.downed) {
+            tx = targetNpc.x;
+            tz = targetNpc.z;
+        } else if (targetingPlayer) {
             tx = w.player.x;
             tz = w.player.z;
         } else if (targetStruct != null && targetStruct.alive) {
@@ -258,6 +279,11 @@ public class Zombie {
             attackCd = 1f / def.attackRate;
             if (def.rangedRange > 0f) {
                 w.spawnAcid(this, tx, 1.0f, tz);   // gövde/yapı orta yüksekliği
+            } else if (targetNpc != null && targetNpc.alive && !targetNpc.downed) {
+                targetNpc.hurt(damage, w);
+                w.particles.blood(targetNpc.x, 1.0f, targetNpc.z,
+                        (targetNpc.x - x) * 0.4f, (targetNpc.z - z) * 0.4f, 6);
+                w.audio.playHit();
             } else if (targetingPlayer) {
                 w.player.hurt(damage, w);
                 w.particles.blood(w.player.x, 1.0f, w.player.z,
@@ -318,8 +344,10 @@ public class Zombie {
             dirX /= l;
             dirZ /= l;
         }
-        if (targetingPlayer) {
-            float px = w.player.x - x, pz = w.player.z - z;
+        if (targetingPlayer || targetNpc != null) {
+            float ax = targetNpc != null ? targetNpc.x : w.player.x;
+            float az = targetNpc != null ? targetNpc.z : w.player.z;
+            float px = ax - x, pz = az - z;
             float pl = MathX.len(px, pz);
             if (pl > 1e-4f) {
                 dirX = px / pl;

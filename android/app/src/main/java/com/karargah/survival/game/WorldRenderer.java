@@ -68,7 +68,9 @@ public class WorldRenderer {
         drawPortals(w);
         drawStructures(w, buildMode);
         drawZombies(w);
+        drawNpcs(w);
         drawPlayer(w);
+        drawPickups(w);
 
         // saydam katman (zemine yapışan katmanlar derinlik kaydırmasıyla çizilir)
         r.beginTransparent();
@@ -255,7 +257,7 @@ public class WorldRenderer {
                 // (armRx/armRz) burada geri alınmazsa namlu yukarı bakar.
                 System.arraycopy(bones, Models.BONE_ARM_R * 16, tmp2, 0, 16);
                 M4.mul(tmp, model, tmp2);
-                M4.translateM(tmp, 0, 0.38f, 1.04f, 0.06f);   // dinlenme pozundaki el
+                M4.translateM(tmp, 0, Models.HAND_X, Models.HAND_Y, Models.HAND_Z);
                 M4.rotateM(tmp, 0, -armRz, 0f, 0f, 1f);
                 M4.rotateM(tmp, 0, -armRx, 1f, 0f, 0f);
                 M4.rotateM(tmp, 0, -4f, 1f, 0f, 0f);          // hafif aşağı eğim
@@ -287,23 +289,43 @@ public class WorldRenderer {
     }
 
     private void animatePlayer(CharModel cm, Player p) {
+        animateHuman(cm, p.animPhase, p.moving, MathX.angleDiff(p.yaw, p.aimYaw) / MathX.DEG,
+                p.recoil, false);
+    }
+
+    /** Yoldaşlar ve oyuncu aynı insan animasyonunu paylaşır. */
+    private void animateHuman(CharModel cm, float animPhase, boolean isMoving,
+                              float aimDiffDeg, float recoil, boolean downed) {
         identityBones();
         float[][] pv = cm.pivots;
-        float phase = p.animPhase;
-        float amp = p.moving ? 34f : 0f;
+        if (downed) {
+            setBone(Models.BONE_HIPS, pv[0], 84f, 0f, 0f, 0f, 0f, 0f);
+            setBone(Models.BONE_TORSO, pv[1], 84f, 0f, 0f, 0f, 0f, 0f);
+            setBone(Models.BONE_HEAD, pv[2], 40f, 0f, 22f, 0f, 0f, 0f);
+            setBone(Models.BONE_ARM_L, pv[3], 20f, 0f, 46f, 0f, 0f, 0f);
+            setBone(Models.BONE_ARM_R, pv[4], 20f, 0f, -46f, 0f, 0f, 0f);
+            setBone(Models.BONE_LEG_L, pv[5], 24f, 0f, 0f, 0f, 0f, 0f);
+            setBone(Models.BONE_LEG_R, pv[6], 16f, 0f, 0f, 0f, 0f, 0f);
+            armRx = 0f;
+            armRy = 0f;
+            armRz = 0f;
+            return;
+        }
+        float phase = animPhase;
+        float amp = isMoving ? 34f : 0f;
         float swing = (float) Math.sin(phase) * amp;
-        float bob = p.moving ? Math.abs((float) Math.sin(phase)) * 0.045f : 0f;
+        float bob = isMoving ? Math.abs((float) Math.sin(phase)) * 0.045f : 0f;
         float breathe = (float) Math.sin(System.nanoTime() * 1e-9f * 1.7f) * 0.012f;
 
         setBone(Models.BONE_HIPS, pv[0], 0f, 0f, 0f, 0f, bob + breathe, 0f);
-        setBone(Models.BONE_TORSO, pv[1], p.moving ? -7f : -2f, swing * 0.12f, 0f, 0f, bob + breathe, 0f);
+        setBone(Models.BONE_TORSO, pv[1], isMoving ? -7f : -2f, swing * 0.12f, 0f, 0f, bob + breathe, 0f);
         setBone(Models.BONE_HEAD, pv[2], -2f, 0f, 0f, 0f, bob + breathe, 0f);
         setBone(Models.BONE_LEG_L, pv[5], swing, 0f, 0f, 0f, 0f, 0f);
         setBone(Models.BONE_LEG_R, pv[6], -swing, 0f, 0f, 0f, 0f, 0f);
 
         // nişan alırken kollar ileride
-        float aimDiff = MathX.angleDiff(p.yaw, p.aimYaw) / MathX.DEG;
-        float recoilKick = p.recoil * 18f;
+        float aimDiff = aimDiffDeg;
+        float recoilKick = recoil * 18f;
         armRx = -78f + recoilKick;
         armRz = -12f;
         armRy = aimDiff * 0.6f;
@@ -363,6 +385,51 @@ public class WorldRenderer {
         setBone(Models.BONE_LEG_R, pv[6], -swing, 0f, 0f, 0f, 0f, 0f);
     }
 
+    private void drawNpcs(GameWorld w) {
+        for (int i = 0; i < w.npcs.size(); i++) {
+            Npc n = w.npcs.get(i);
+            if (!n.alive || !visible(w, n.x, n.z, 3f)) continue;
+            CharModel cm = models.npcModels[n.role];
+            if (cm == null) continue;
+            animateHuman(cm, n.animPhase, n.moving, 0f, 0f, n.downed);
+            M4.trsFull(model, n.x, n.y, n.z, 0f, n.yaw, 0f, 1f, 1f, 1f);
+            float flash = n.flash * 3f;
+            float glow = n.workGlow * 0.35f;
+            r.drawSkinned(cm.mesh, model, bones, Renderer3D.MAX_BONES,
+                    1f + flash, 1f - flash * 0.3f + glow, 1f - flash * 0.3f, 1f,
+                    flash * 0.5f + glow);
+
+            if (!n.downed) {
+                Mesh gun = models.weapons[n.def().weapon];
+                if (gun != null) {
+                    System.arraycopy(bones, Models.BONE_ARM_R * 16, tmp2, 0, 16);
+                    M4.mul(tmp, model, tmp2);
+                    M4.translateM(tmp, 0, Models.HAND_X, Models.HAND_Y, Models.HAND_Z);
+                    M4.rotateM(tmp, 0, -armRz, 0f, 0f, 1f);
+                    M4.rotateM(tmp, 0, -armRx, 1f, 0f, 0f);
+                    M4.rotateM(tmp, 0, -4f, 1f, 0f, 0f);
+                    r.draw(gun, tmp, 1f, 1f, 1f, 1f, n.fireCd > 0.85f / n.def().fireRate ? 1.2f : 0f);
+                }
+            }
+        }
+    }
+
+    private void drawPickups(GameWorld w) {
+        for (int i = 0; i < w.pickups.size(); i++) {
+            Pickup p = w.pickups.get(i);
+            if (!p.alive || !visible(w, p.x, p.z, 1.5f)) continue;
+            boolean core = p.kind == Pickup.CORE;
+            float bobY = p.y + (core ? 0.12f : 0f);
+            float ps = core ? 1.1f : 0.85f + Math.min(0.75f, p.amount / 70f);
+            M4.trs(model, p.x, bobY, p.z, p.spin, ps);
+            if (core) {
+                r.draw(models.corePickup, model, 1f, 1f, 1f, 1f, 1.1f + p.magnet);
+            } else {
+                r.draw(models.scrapPickup, model, 1f, 1f, 1f, 1f, 0.25f + p.magnet * 0.8f);
+            }
+        }
+    }
+
     // ---- gölgeler, efektler --------------------------------------------
 
     private void drawShadows(GameWorld w) {
@@ -374,6 +441,16 @@ public class WorldRenderer {
         }
         if (w.player.alive) {
             r.drawBlobShadow(w.player.x, w.player.z, 0.62f, 0.38f);
+        }
+        for (int i = 0; i < w.npcs.size(); i++) {
+            Npc n = w.npcs.get(i);
+            if (!n.alive || !visible(w, n.x, n.z, 2f)) continue;
+            r.drawBlobShadow(n.x, n.z, n.downed ? 0.9f : 0.6f, 0.34f);
+        }
+        for (int i = 0; i < w.pickups.size(); i++) {
+            Pickup p = w.pickups.get(i);
+            if (!p.alive || !visible(w, p.x, p.z, 1f)) continue;
+            r.drawBlobShadow(p.x, p.z, 0.3f, 0.25f);
         }
         for (int i = 0; i < w.structures.size(); i++) {
             Structure s = w.structures.get(i);

@@ -1,5 +1,7 @@
 package com.karargah.survival.game;
 
+import com.karargah.survival.engine.MathX;
+
 /**
  * Oyunun tüm denge verileri tek yerde: yapılar, silahlar, zombiler, yetenekler
  * ve dalga ilerleyişi. Sayıları buradan değiştirmek oyunun tamamını etkiler.
@@ -34,6 +36,7 @@ public final class Balance {
     public static final int S_REPAIR = 10;
     public static final int S_MED = 11;
     public static final int S_COLLECTOR = 12;
+    public static final int S_BARRACKS = 13;
 
     public static final class StructDef {
         public final int id;
@@ -156,7 +159,11 @@ public final class Balance {
             new StructDef(S_COLLECTOR, KIND_SUPPORT, "Hurda Toplayıcı", "❖",
                     "Her dalga sonunda fazladan hurda üretir.",
                     0xFFB74D, 150, 1, 200f, 0.6f, true, 5,
-                    0, 0, 22f, 0, -2f, 2)
+                    0, 0, 22f, 0, -2f, 2),
+            new StructDef(S_BARRACKS, KIND_SUPPORT, "Kışla", "⚑",
+                    "Yoldaş alırsın. Her seviye bir yoldaş hakkı ve daha güçlü ekip verir.",
+                    0x8D6E63, 220, 1, 340f, 0.7f, true, 5,
+                    14f, 0, 0, 0, -2f, 1)
     };
 
     public static StructDef struct(int id) {
@@ -188,15 +195,20 @@ public final class Balance {
         public final int color;
         public final float recoil;
         public final boolean pierce;
+        /** Namlu ucunun tutuş noktasına göre ileri mesafesi (mermi buradan çıkar). */
+        public final float muzzleZ;
+        /** Namlu ucunun tutuş noktasına göre yüksekliği. */
+        public final float muzzleY;
 
         WeaponDef(int id, String name, float damage, float fireRate, int magazine, int reserveMax,
                   float reload, float range, int pellets, float spread, float splash,
-                  float speed, int price, int color, float recoil, boolean pierce) {
+                  float speed, int price, int color, float recoil, boolean pierce,
+                  float muzzleZ, float muzzleY) {
             this.id = id; this.name = name; this.damage = damage; this.fireRate = fireRate;
             this.magazine = magazine; this.reserveMax = reserveMax; this.reload = reload;
             this.range = range; this.pellets = pellets; this.spread = spread; this.splash = splash;
             this.speed = speed; this.price = price; this.color = color; this.recoil = recoil;
-            this.pierce = pierce;
+            this.pierce = pierce; this.muzzleZ = muzzleZ; this.muzzleY = muzzleY;
         }
 
         public float damageAt(int level) {
@@ -220,12 +232,12 @@ public final class Balance {
 
     public static final WeaponDef[] WEAPONS = new WeaponDef[]{
             //                 ad             hasar hız  şarjör yedek  şarj  menzil sac  yay   alan  hız  fiyat renk     geri  delici
-            new WeaponDef(0, "Tabanca",        17f, 4.5f, 12,  9999, 1.05f, 24f, 1, 0.012f, 0f,   0f,    0, 0xB0BEC5, 0.25f, false),
-            new WeaponDef(1, "Hafif Makineli", 12f, 11f,  34,  420,  1.70f, 22f, 1, 0.045f, 0f,   0f,  420, 0xFFA726, 0.14f, false),
-            new WeaponDef(2, "Pompalı",        11f, 1.3f,  6,  110,  2.30f, 12f, 9, 0.115f, 0f,   0f,  560, 0xA1887F, 0.85f, false),
-            new WeaponDef(3, "Saldırı Tüfeği", 24f, 7.2f, 30,  360,  1.95f, 30f, 1, 0.026f, 0f,   0f,  900, 0x7E9E6A, 0.22f, false),
-            new WeaponDef(4, "Keskin Nişancı",130f, 0.9f,  5,   70,  2.60f, 55f, 1, 0.002f, 0f,   0f, 1400, 0x5D8AA8, 1.10f, true),
-            new WeaponDef(5, "Roketatar",      95f, 0.65f, 4,   40,  3.00f, 40f, 1, 0.010f, 4.2f, 34f, 2100, 0xD84315, 1.30f, false)
+            new WeaponDef(0, "Tabanca",        17f, 4.5f, 12,  9999, 1.05f, 24f, 1, 0.012f, 0f,   0f,    0, 0xB0BEC5, 0.25f, false, 0.42f, 0.07f),
+            new WeaponDef(1, "Hafif Makineli", 12f, 11f,  34,  420,  1.70f, 22f, 1, 0.045f, 0f,   0f,  420, 0xFFA726, 0.14f, false, 0.72f, 0.07f),
+            new WeaponDef(2, "Pompalı",        11f, 1.3f,  6,  110,  2.30f, 12f, 9, 0.115f, 0f,   0f,  560, 0xA1887F, 0.85f, false, 0.98f, 0.06f),
+            new WeaponDef(3, "Saldırı Tüfeği", 24f, 7.2f, 30,  360,  1.95f, 30f, 1, 0.026f, 0f,   0f,  900, 0x7E9E6A, 0.22f, false, 1.02f, 0.07f),
+            new WeaponDef(4, "Keskin Nişancı",130f, 0.9f,  5,   70,  2.60f, 55f, 1, 0.002f, 0f,   0f, 1400, 0x5D8AA8, 1.10f, true,  1.28f, 0.08f),
+            new WeaponDef(5, "Roketatar",      95f, 0.65f, 4,   40,  3.00f, 40f, 1, 0.010f, 4.2f, 34f, 2100, 0xD84315, 1.30f, false, 0.92f, 0.10f)
     };
 
     public static WeaponDef weapon(int id) {
@@ -365,6 +377,78 @@ public final class Balance {
             new SkillDef(SK_DASH, "Kaçış Ustası", "⇉", "Atılma bekleme süresi -0.7 sn.", 3),
             new SkillDef(SK_REGEN, "Yenilenme", "✜", "Saniyede +0.7 can yenilenmesi.", 5)
     };
+
+    // ---- yoldaşlar ------------------------------------------------------
+    public static final int NPC_GUARD = 0;
+    public static final int NPC_ENGINEER = 1;
+    public static final int NPC_SCAVENGER = 2;
+    public static final int NPC_MEDIC = 3;
+    public static final int NPC_COUNT = 4;
+
+    public static final class NpcDef {
+        public final int id;
+        public final String name;
+        public final String desc;
+        public final int hire;          // hurda maliyeti
+        public final float hp;
+        public final float speed;
+        public final float damage;
+        public final float fireRate;
+        public final float range;
+        public final float work;        // tamir/iyileştirme gücü (saniyede)
+        public final int suit;
+        public final int accent;
+        public final int weapon;        // taşıdığı silah modeli
+
+        NpcDef(int id, String name, String desc, int hire, float hp, float speed, float damage,
+               float fireRate, float range, float work, int suit, int accent, int weapon) {
+            this.id = id; this.name = name; this.desc = desc; this.hire = hire; this.hp = hp;
+            this.speed = speed; this.damage = damage; this.fireRate = fireRate; this.range = range;
+            this.work = work; this.suit = suit; this.accent = accent; this.weapon = weapon;
+        }
+
+        public float hpAt(int level) {
+            return hp * (1f + 0.22f * (level - 1));
+        }
+
+        public float damageAt(int level) {
+            return damage * (1f + 0.28f * (level - 1));
+        }
+
+        public float workAt(int level) {
+            return work * (1f + 0.30f * (level - 1));
+        }
+    }
+
+    public static final NpcDef[] NPCS = new NpcDef[]{
+            new NpcDef(NPC_GUARD, "Muhafız",
+                    "Tüfekle savaşır, hattı tutar. Saldırı emirleri için en uygunu.",
+                    180, 150f, 5.9f, 15f, 3.4f, 18f, 0f, 0x3E4A33, 0x8BC34A, W_RIFLE),
+            new NpcDef(NPC_ENGINEER, "Mühendis",
+                    "Dalga sırasında bile hasarlı yapıları onarır, kuleleri ayakta tutar.",
+                    200, 130f, 5.6f, 8f, 2.2f, 12f, 16f, 0x4E5B66, 0xFFB74D, W_PISTOL),
+            new NpcDef(NPC_SCAVENGER, "Toplayıcı",
+                    "Yere düşen hurdayı toplar ve sana getirir. Hızlıdır.",
+                    150, 110f, 7.2f, 9f, 3.0f, 13f, 0f, 0x5D4037, 0xFFD54F, W_SMG),
+            new NpcDef(NPC_MEDIC, "Sağlıkçı",
+                    "Seni ve yaralı yoldaşları iyileştirir, düşenleri kaldırır.",
+                    220, 125f, 6.2f, 7f, 2.4f, 12f, 11f, 0x37474F, 0xE57373, W_PISTOL)
+    };
+
+    public static NpcDef npc(int id) {
+        return NPCS[MathX.clampI(id, 0, NPCS.length - 1)];
+    }
+
+    /** Kışla seviyesi başına yoldaş hakkı. */
+    public static final int NPC_PER_BARRACKS_LEVEL = 1;
+    public static final int NPC_MAX = 6;
+    public static final float NPC_REVIVE_TIME = 22f;
+
+    // ---- yere düşen ganimet ---------------------------------------------
+    /** Oyuncunun ganimeti kendine çekme yarıçapı. */
+    public static final float PICKUP_MAGNET = 4.2f;
+    public static final float PICKUP_GRAB = 1.25f;
+    public static final float PICKUP_LIFE = 90f;
 
     // ---- güç ------------------------------------------------------------
     public static final float MIN_POWER_EFFICIENCY = 0.42f;

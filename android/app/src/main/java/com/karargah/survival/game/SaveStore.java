@@ -101,6 +101,24 @@ public final class SaveStore {
             }
             root.put("structures", arr);
 
+            JSONArray npcArr = new JSONArray();
+            for (int i = 0; i < w.npcs.size(); i++) {
+                Npc n = w.npcs.get(i);
+                JSONObject jn = new JSONObject();
+                jn.put("role", n.role);
+                jn.put("lvl", n.level);
+                jn.put("name", n.name);
+                jn.put("hp", n.hp);
+                jn.put("order", n.order);
+                jn.put("ox", n.orderX);
+                jn.put("oz", n.orderZ);
+                jn.put("col", n.collected);
+                jn.put("x", n.x);
+                jn.put("z", n.z);
+                npcArr.put(jn);
+            }
+            root.put("npcs", npcArr);
+
             prefs(ctx).edit()
                     .putString(KEY_STATE, root.toString())
                     .putInt(KEY_RECORD, Math.max(bestWave(ctx), w.waveRecord))
@@ -202,6 +220,24 @@ public final class SaveStore {
             w.camera.targetX = 0f;
             w.camera.targetZ = 7f;
             w.camera.snapToTarget();
+            JSONArray npcArr = root.optJSONArray("npcs");
+            if (npcArr != null) {
+                for (int i = 0; i < npcArr.length(); i++) {
+                    JSONObject jn = npcArr.getJSONObject(i);
+                    Npc n = new Npc();
+                    n.init(jn.optInt("role", 0), Math.max(1, jn.optInt("lvl", 1)), i,
+                            (float) jn.optDouble("x", 0), (float) jn.optDouble("z", 6));
+                    String nm = jn.optString("name", null);
+                    if (nm != null && !nm.isEmpty()) n.name = nm;
+                    n.hp = Math.min(n.maxHp, (float) jn.optDouble("hp", n.maxHp));
+                    if (n.hp <= 1f) n.hp = n.maxHp * 0.6f;
+                    n.setOrder(jn.optInt("order", Npc.ORDER_FOLLOW),
+                            (float) jn.optDouble("ox", 0), (float) jn.optDouble("oz", 0));
+                    n.collected = jn.optInt("col", 0);
+                    w.npcs.add(n);
+                }
+            }
+            w.advisor.reset();
             w.refreshAllWalls();
             w.flow.compute(w.grid);
             w.message("Kayıt yüklendi — " + (wave + 1) + ". dalgaya hazırlan", 3.5f);

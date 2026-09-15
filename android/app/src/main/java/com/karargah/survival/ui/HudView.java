@@ -16,6 +16,8 @@ import com.karargah.survival.game.Cmd;
 import com.karargah.survival.game.FloatingText;
 import com.karargah.survival.game.GameWorld;
 import com.karargah.survival.game.InputState;
+import com.karargah.survival.game.Npc;
+import com.karargah.survival.game.Pickup;
 import com.karargah.survival.game.Player;
 import com.karargah.survival.game.Structure;
 import com.karargah.survival.game.WaveManager;
@@ -33,6 +35,7 @@ public class HudView extends View {
     public static final int SCREEN_WEAPONS = 4;
     public static final int SCREEN_GAMEOVER = 5;
     public static final int SCREEN_HELP = 6;
+    public static final int SCREEN_SQUAD = 7;
 
     private static final int A_RELOAD = 2;
     private static final int A_DASH = 3;
@@ -64,6 +67,10 @@ public class HudView extends View {
     private static final int A_QUIT = 29;
     private static final int A_FIRE = 30;
     private static final int A_ROTATE = 31;
+    private static final int A_OPEN_SQUAD = 32;
+    private static final int A_SELECT_NPC = 33;
+    private static final int A_ORDER = 34;
+    private static final int A_RECRUIT = 35;
 
     public interface Listener {
         void onNewGame();
@@ -102,6 +109,10 @@ public class HudView extends View {
     private float joyBaseX, joyBaseY, joyX, joyY;
     private float lastCamX, lastCamY;
     private int lastPlacedCell = -1;
+    /** Ekip panelinde seçili yoldaş (-1 = tüm ekip). */
+    private int squadSel = -1;
+    /** Haritadan nokta bekleyen emir (-1 = yok). */
+    private int pendingOrder = -1;
 
     public HudView(Context ctx, InputState input) {
         super(ctx);
@@ -177,6 +188,7 @@ public class HudView extends View {
             case SCREEN_SKILLS: drawSkills(c, gw, w, h); break;
             case SCREEN_WEAPONS: drawWeapons(c, gw, w, h); break;
             case SCREEN_GAMEOVER: drawGameOver(c, gw, w, h); break;
+            case SCREEN_SQUAD: drawSquad(c, gw, w, h); break;
             case SCREEN_HELP: drawHelp(c, w, h); break;
             default: break;
         }
@@ -317,6 +329,29 @@ public class HudView extends View {
                     s.hpFraction(), 0xAA141A18, 0xFF7ECB6B, false);
         }
 
+        // yoldaş etiketleri: ad, can ve emir
+        for (int i = 0; i < gw.npcs.size(); i++) {
+            Npc n;
+            try {
+                n = gw.npcs.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (n == null || !n.alive) continue;
+            if (!M4.project(tmpVP, n.x, n.downed ? 0.7f : 2.05f, n.z, vw, vh, tmp4, outXY)) continue;
+            float bw = 52 * sc;
+            ui.bar(c, outXY[0] - bw * 0.5f, outXY[1], outXY[0] + bw * 0.5f, outXY[1] + 5 * sc,
+                    n.hp / Math.max(1f, n.maxHp), 0xAA141A18,
+                    n.downed ? 0xFFE05C4B : 0xFF7ECB6B, false);
+            ui.labelShadow(c, n.name + (n.downed ? " (yerde)" : ""),
+                    outXY[0], outXY[1] - 6 * sc, 14 * sc,
+                    n.downed ? UiKit.COL_DANGER : 0xFFB3E5FC, Paint.Align.CENTER);
+            if (!n.downed) {
+                ui.labelShadow(c, Npc.ORDER_SHORT[n.order], outXY[0], outXY[1] + 18 * sc,
+                        12 * sc, UiKit.COL_DIM, Paint.Align.CENTER);
+            }
+        }
+
         // süzülen yazılar
         for (int i = 0; i < gw.texts.size(); i++) {
             FloatingText t;
@@ -399,6 +434,20 @@ public class HudView extends View {
                 p.skillPoints > 0 ? UiKit.STYLE_PRIMARY : UiKit.STYLE_GHOST, true, A_OPEN_SKILLS, 0);
         ui.button(c, w - 100 * sc, 132 * sc, w - 14 * sc, 172 * sc, "SİLAH", null,
                 UiKit.STYLE_GHOST, true, A_OPEN_WEAPONS, 0);
+        int alive = 0;
+        for (int i = 0; i < gw.npcs.size(); i++) {
+            if (!gw.npcs.get(i).downed) alive++;
+        }
+        ui.button(c, w - 190 * sc, 178 * sc, w - 14 * sc, 218 * sc, "EKİP",
+                gw.npcs.isEmpty() ? "yoldaş yok" : alive + "/" + gw.npcs.size() + " hazır",
+                gw.npcs.isEmpty() ? UiKit.STYLE_GHOST : UiKit.STYLE_NORMAL, true, A_OPEN_SQUAD, 0);
+
+        if (pendingOrder >= 0) {
+            ui.rect(c, w * 0.5f - 210 * sc, h * 0.12f, w * 0.5f + 210 * sc, h * 0.12f + 42 * sc,
+                    10 * sc, 0xCC1B2320);
+            ui.labelShadow(c, "Haritada hedef noktaya dokun — " + Npc.ORDER_NAMES[pendingOrder],
+                    w * 0.5f, h * 0.12f + 28 * sc, 20 * sc, UiKit.COL_CYAN, Paint.Align.CENTER);
+        }
 
         if (!p.alive) {
             ui.labelShadow(c, "YENİDEN AYAĞA KALKIYORSUN: " + Math.max(0, Math.round(p.reviveTimer)),
@@ -454,6 +503,31 @@ public class HudView extends View {
             ui.fill.setColor(z.isBoss() ? 0xFFFF5252 : (z.elite ? 0xFFCE93D8 : 0xFFE05C4B));
             c.drawCircle(cx + z.x * scale, cy + z.z * scale, z.isBoss() ? 4f * sc : 2f * sc, ui.fill);
         }
+        // yere düşen ganimet
+        for (int i = 0; i < gw.pickups.size(); i++) {
+            Pickup p;
+            try {
+                p = gw.pickups.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (p == null || !p.alive) continue;
+            ui.fill.setColor(p.kind == Pickup.CORE ? 0xFF4DD0E1 : 0xFFFFD54F);
+            c.drawCircle(cx + p.x * scale, cy + p.z * scale, 1.6f * sc, ui.fill);
+        }
+        // yoldaşlar
+        for (int i = 0; i < gw.npcs.size(); i++) {
+            Npc n;
+            try {
+                n = gw.npcs.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (n == null || !n.alive) continue;
+            ui.fill.setColor(n.downed ? 0xFF8E3A31 : (0xFF000000 | Balance.npc(n.role).accent));
+            c.drawCircle(cx + n.x * scale, cy + n.z * scale, 2.6f * sc, ui.fill);
+        }
+
         // oyuncu
         ui.fill.setColor(0xFFFFFFFF);
         c.drawCircle(cx + gw.player.x * scale, cy + gw.player.z * scale, 3f * sc, ui.fill);
@@ -845,6 +919,107 @@ public class HudView extends View {
                 "KAPAT", null, UiKit.STYLE_NORMAL, true, A_CLOSE, 0);
     }
 
+    private void drawSquad(Canvas c, GameWorld gw, float w, float h) {
+        dimBackground(c, w, h, 0.82f);
+        if (gw == null) return;
+        float pad = 18 * sc;
+        int cap = gw.npcCapacity();
+        ui.panel(c, pad, pad, w - pad, h - pad,
+                "EKİP   ·   " + gw.npcs.size() + "/" + cap + " yoldaş   ·   hurda: "
+                        + gw.player.scrap);
+
+        float listW = (w - pad * 2) * 0.54f;
+        float y = pad + 56 * sc;
+        float rowH = Math.min(58 * sc, (h - pad * 2 - 190 * sc) / Math.max(1, gw.npcs.size()));
+
+        // "tüm ekip" satırı
+        boolean allSel = squadSel < 0;
+        ui.rect(c, pad + 12 * sc, y, pad + listW, y + 34 * sc, 8 * sc,
+                allSel ? 0xFF24352C : 0xFF1A2220);
+        ui.border(c, pad + 12 * sc, y, pad + listW, y + 34 * sc, 8 * sc,
+                allSel ? 0x885FD38A : 0x22FFFFFF, 1.3f * sc);
+        ui.addHit(pad + 12 * sc, y, pad + listW, y + 34 * sc, A_SELECT_NPC, -1, true);
+        ui.label(c, "TÜM EKİP", pad + 24 * sc, y + 23 * sc, 19 * sc,
+                allSel ? UiKit.COL_ACCENT : UiKit.COL_TEXT, Paint.Align.LEFT);
+        y += 40 * sc;
+
+        for (int i = 0; i < gw.npcs.size(); i++) {
+            Npc n = gw.npcs.get(i);
+            boolean sel = squadSel == i;
+            float t = y + i * rowH;
+            float b = t + rowH - 6 * sc;
+            ui.rect(c, pad + 12 * sc, t, pad + listW, b, 8 * sc, sel ? 0xFF24352C : 0xFF1A2220);
+            ui.border(c, pad + 12 * sc, t, pad + listW, b, 8 * sc,
+                    sel ? 0x885FD38A : 0x22FFFFFF, 1.3f * sc);
+            ui.addHit(pad + 12 * sc, t, pad + listW, b, A_SELECT_NPC, i, true);
+
+            int roleColor = Balance.npc(n.role).accent;
+            ui.fill.setStyle(Paint.Style.FILL);
+            ui.fill.setColor(0xFF000000 | roleColor);
+            c.drawCircle(pad + 32 * sc, (t + b) * 0.5f, 9 * sc, ui.fill);
+
+            ui.label(c, n.name + "  ·  " + n.roleName() + " Sv." + n.level,
+                    pad + 50 * sc, t + 22 * sc, 18 * sc,
+                    n.downed ? UiKit.COL_DANGER : UiKit.COL_TEXT, Paint.Align.LEFT);
+            ui.label(c, n.statusText(), pad + 50 * sc, t + 40 * sc, 14 * sc,
+                    UiKit.COL_DIM, Paint.Align.LEFT);
+            ui.bar(c, pad + listW - 120 * sc, t + 14 * sc, pad + listW - 14 * sc, t + 26 * sc,
+                    n.hp / Math.max(1f, n.maxHp), 0xFF241A1A,
+                    n.downed ? 0xFF8E3A31 : 0xFF7ECB6B, false);
+            if (n.role == Balance.NPC_SCAVENGER && n.collected > 0) {
+                ui.label(c, "topladığı: " + n.collected, pad + listW - 120 * sc, t + 42 * sc,
+                        13 * sc, UiKit.COL_GOLD, Paint.Align.LEFT);
+            }
+        }
+
+        // --- emirler ---
+        float ox = pad + listW + 18 * sc;
+        float ow = w - pad - 12 * sc - ox;
+        boolean validSel = squadSel >= 0 && squadSel < gw.npcs.size();
+        ui.label(c, validSel ? "EMİR: " + gw.npcs.get(squadSel).name : "TÜM EKİBE EMİR",
+                ox, pad + 74 * sc, 20 * sc, UiKit.COL_ACCENT, Paint.Align.LEFT);
+        float by = pad + 86 * sc;
+        float bw = (ow - 10 * sc) * 0.5f;
+        float bh = 46 * sc;
+        for (int i = 0; i < Npc.ORDER_COUNT; i++) {
+            float bx = ox + (i % 2) * (bw + 10 * sc);
+            float byy = by + (i / 2) * (bh + 8 * sc);
+            boolean positional = i == Npc.ORDER_HOLD || i == Npc.ORDER_ATTACK;
+            ui.button(c, bx, byy, bx + bw, byy + bh, Npc.ORDER_SHORT[i],
+                    positional ? "nokta seç" : null,
+                    i == Npc.ORDER_ATTACK ? UiKit.STYLE_DANGER : UiKit.STYLE_NORMAL,
+                    !gw.npcs.isEmpty(), A_ORDER, i);
+        }
+
+        // --- yoldaş alma ---
+        float ry = by + 4 * (bh + 8 * sc) + 6 * sc;
+        boolean hasBarracks = gw.barracks() != null;
+        ui.label(c, hasBarracks ? "YOLDAŞ AL" : "YOLDAŞ AL — önce Kışla kur",
+                ox, ry, 19 * sc, hasBarracks ? UiKit.COL_GOLD : UiKit.COL_DIM, Paint.Align.LEFT);
+        ry += 10 * sc;
+        float rw = (ow - 12 * sc) * 0.5f;
+        for (int i = 0; i < Balance.NPC_COUNT; i++) {
+            Balance.NpcDef d = Balance.npc(i);
+            int cost = gw.player.buildCost(d.hire);
+            float bx = ox + (i % 2) * (rw + 12 * sc);
+            float byy = ry + (i / 2) * (52 * sc);
+            boolean can = hasBarracks && gw.npcs.size() < cap && gw.player.scrap >= cost;
+            ui.button(c, bx, byy, bx + rw, byy + 46 * sc, d.name, cost + " hurda",
+                    UiKit.STYLE_GOLD, can, A_RECRUIT, i);
+        }
+        float infoY = ry + 2 * (52 * sc) + 14 * sc;
+        if (validSel) {
+            wrapText(c, Balance.npc(gw.npcs.get(squadSel).role).desc, ox, infoY, ow, 14.5f * sc);
+        } else {
+            wrapText(c, "Yoldaşlar emir almadan da akıllı davranır: hedef seçer, "
+                    + "duvarın arkasından dolaşır, canı azalınca geri çekilir ve "
+                    + "rolünün işini kendiliğinden yapar.", ox, infoY, ow, 14.5f * sc);
+        }
+
+        ui.button(c, w * 0.5f - 90 * sc, h - pad - 46 * sc, w * 0.5f + 90 * sc, h - pad - 6 * sc,
+                "KAPAT", null, UiKit.STYLE_NORMAL, true, A_CLOSE, 0);
+    }
+
     private void drawGameOver(Canvas c, GameWorld gw, float w, float h) {
         dimBackground(c, w, h, 0.82f);
         float cx = w * 0.5f;
@@ -887,7 +1062,15 @@ public class HudView extends View {
             "alıp geliştirebilir, yapılarını 5. seviyeye kadar yükseltebilirsin.",
             "",
             "ENERJİ: Kuleler enerji tüketir, jeneratörler üretir. Enerji açığı varsa",
-            "kulelerin atış hızı düşer. Her 5. dalgada Mutant Dev gelir, enerji çekirdeği bırakır."
+            "kulelerin atış hızı düşer. Her 5. dalgada Mutant Dev gelir, enerji çekirdeği bırakır.",
+            "",
+            "EKİP: Kışla kurup yoldaş alabilirsin (muhafız, mühendis, toplayıcı, sağlıkçı).",
+            "EKİP düğmesinden emir ver: takip et, burayı tut, reaktörü koru, ganimet topla,",
+            "yapıları onar, bölgeye saldır, geri çekil. TUT ve SALDIR için haritada nokta seç.",
+            "Emir almadan da akıllıdırlar: duvarı dolaşır, canı azalınca çekilir, öneri verirler.",
+            "",
+            "GANİMET: Ölen zombiler yere hurda düşürür. Üstüne gidersen kendiliğinden çekilir,",
+            "toplayıcı yoldaş senin için toplar, dalga bitince kalanlar otomatik toplanır."
     };
 
     private void drawHelp(Canvas c, float w, float h) {
@@ -965,6 +1148,29 @@ public class HudView extends View {
             return;
         }
         if (screen != SCREEN_GAME) return;
+
+        // Konumlu emir bekleniyorsa ilk dokunuş hedefi belirler.
+        if (pendingOrder >= 0) {
+            GameWorld gw = world;
+            if (gw != null) {
+                int vw, vh;
+                synchronized (viewProj) {
+                    System.arraycopy(invViewProj, 0, tmpVP, 0, 16);
+                    vw = getWidth();
+                    vh = getHeight();
+                }
+                if (M4.unprojectToPlane(tmpVP, x, y, vw, vh, 0.05f, tmpA, tmpB, outXZ)) {
+                    int ogx = BuildGrid.worldToCell(outXZ[0]);
+                    int ogz = BuildGrid.worldToCell(outXZ[1]);
+                    if (BuildGrid.inBounds(ogx, ogz)) {
+                        input.push(new Cmd(Cmd.ORDER_AT, squadSel,
+                                ogz * BuildGrid.N + ogx, pendingOrder));
+                    }
+                }
+            }
+            pendingOrder = -1;
+            return;
+        }
 
         float w = getWidth(), h = getHeight();
         // İnşa modunda sol alt köşe hareket için ayrılır, gerisi yerleştirme alanıdır.
@@ -1120,6 +1326,19 @@ public class HudView extends View {
             case A_REPAIR_ALL: input.push(new Cmd(Cmd.REPAIR_ALL)); break;
             case A_BUY_AMMO: input.push(new Cmd(Cmd.BUY_AMMO)); break;
             case A_ROTATE: input.push(new Cmd(Cmd.ROTATE)); break;
+            case A_OPEN_SQUAD: setScreen(SCREEN_SQUAD); break;
+            case A_SELECT_NPC: squadSel = p; break;
+            case A_RECRUIT: input.push(new Cmd(Cmd.RECRUIT, p)); break;
+            case A_ORDER:
+                if (p == Npc.ORDER_HOLD || p == Npc.ORDER_ATTACK) {
+                    pendingOrder = p;      // haritadan nokta bekle
+                    setScreen(SCREEN_GAME);
+                } else if (squadSel < 0) {
+                    input.push(new Cmd(Cmd.ORDER_ALL, p));
+                } else {
+                    input.push(new Cmd(Cmd.ORDER, squadSel, p, 0));
+                }
+                break;
             case A_PICK_BUILD: input.buildType = p; break;
             case A_UPGRADE: input.push(new Cmd(Cmd.UPGRADE_SELECTED)); break;
             case A_REPAIR: input.push(new Cmd(Cmd.REPAIR_SELECTED)); break;

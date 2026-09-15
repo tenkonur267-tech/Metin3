@@ -20,6 +20,11 @@ public class Cmd {
     public static final int DESELECT = 16;
     public static final int BUY_AMMO = 17;
     public static final int ROTATE = 18;
+    public static final int RECRUIT = 19;
+    public static final int ORDER = 20;
+    public static final int ORDER_AT = 21;
+    public static final int ORDER_ALL = 22;
+    public static final int CLEAR_ADVICE = 23;
 
     public final int op;
     public final int a, b, c;

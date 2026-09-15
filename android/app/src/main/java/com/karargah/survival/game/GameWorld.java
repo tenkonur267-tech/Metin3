@@ -27,11 +27,15 @@ public class GameWorld {
     public final ArrayList<Projectile> projectiles = new ArrayList<>();
     public final ArrayList<Tracer> tracers = new ArrayList<>();
     public final ArrayList<FloatingText> texts = new ArrayList<>();
+    public final ArrayList<Pickup> pickups = new ArrayList<>();
+    public final ArrayList<Npc> npcs = new ArrayList<>();
+    public final PathFinder pathFinder = new PathFinder();
 
     private final ArrayList<Zombie> zombiePool = new ArrayList<>();
     private final ArrayList<Projectile> projPool = new ArrayList<>();
     private final ArrayList<Tracer> tracerPool = new ArrayList<>();
     private final ArrayList<FloatingText> textPool = new ArrayList<>();
+    private final ArrayList<Pickup> pickupPool = new ArrayList<>();
 
     public Structure core;
     public boolean gameOver;
@@ -50,6 +54,7 @@ public class GameWorld {
     public float playTime;
     public float nightFactor;      // 0 = gündüz (hazırlık), 1 = gece (dalga)
 
+    public final Advisor advisor = new Advisor();
     private boolean flowDirty = true;
     private float flowTimer;
     private float camDistTarget = 14f;
@@ -75,6 +80,8 @@ public class GameWorld {
         projectiles.clear();
         tracers.clear();
         texts.clear();
+        pickups.clear();
+        npcs.clear();
         grid.clearAll();
         particles.clear();
         player.resetForNewGame();
@@ -91,15 +98,21 @@ public class GameWorld {
         nightFactor = 0f;
 
         createCore();
-        // başlangıçta birkaç duvar hediye: oyuncu boş sahaya düşmesin
+        // Başlangıç sur hattı. Her kenarın ortasında iki hücrelik kapı var:
+        // hem oyuncu/yoldaşlar girip çıkabiliyor hem de zombiler kapılara
+        // yönlendiği için kuleleri oraya dizmek işe yarıyor.
         int c = BuildGrid.N / 2;
         for (int i = -4; i <= 4; i++) {
-            placeFree(Balance.S_WALL, c + i, c - 5);
-            placeFree(Balance.S_WALL, c + i, c + 4);
+            if (i != 0 && i != 1) {
+                placeFree(Balance.S_WALL, c + i, c - 5);
+                placeFree(Balance.S_WALL, c + i, c + 4);
+            }
         }
         for (int i = -4; i <= 3; i++) {
-            placeFree(Balance.S_WALL, c - 5, c + i);
-            placeFree(Balance.S_WALL, c + 4, c + i);
+            if (i != -1 && i != 0) {
+                placeFree(Balance.S_WALL, c - 5, c + i);
+                placeFree(Balance.S_WALL, c + 4, c + i);
+            }
         }
         placeFree(Balance.S_MG, c - 3, c - 3);
         placeFree(Balance.S_MG, c + 2, c + 2);
@@ -200,8 +213,10 @@ public class GameWorld {
 
         updateZombies(dt);
         separateZombies();
+        updateNpcs(dt);
         updateStructures(dt);
         updateProjectiles(dt);
+        updatePickups(dt);
         updateEffects(dt);
         particles.update(dt);
         waves.update(this, dt);
@@ -257,6 +272,11 @@ public class GameWorld {
                 case Cmd.REPAIR_SELECTED: repairSelected(); break;
                 case Cmd.REPAIR_ALL: repairAll(); break;
                 case Cmd.ROTATE: rotateSelection(); break;
+                case Cmd.RECRUIT: recruitNpc(c.a); break;
+                case Cmd.ORDER: orderNpc(c.a, c.b, 0f, 0f); break;
+                case Cmd.ORDER_AT: orderNpcAt(c.a, c.b, c.c); break;
+                case Cmd.ORDER_ALL: orderAll(c.a, 0f, 0f); break;
+                case Cmd.CLEAR_ADVICE: advisor.tipTimer = 0f; break;
                 case Cmd.START_WAVE: waves.skipPrepare(); break;
                 case Cmd.SKILL_UP: doSkillUp(c.a); break;
                 case Cmd.WEAPON_UP: upgradeWeapon(c.a); break;
@@ -326,18 +346,344 @@ public class GameWorld {
         particles.blood(z.x, z.centerY(), z.z, z.lastDamageDirX, z.lastDamageDirZ, z.isBoss() ? 34 : 14);
         audio.playZombieDie(z.isBoss());
         int scrap = Math.round(z.scrapValue * player.scrapBonus());
-        player.scrap += scrap;
-        scrapEarned += scrap;
+        dropLoot(z.x, z.z, scrap, z.isBoss() ? 2 + waves.wave / 10 : 0, z.isBoss() ? 5 : 2);
         player.addXp(z.xpValue, this);
         if (player.lifesteal() > 0f) player.heal(player.lifesteal());
-        addText(z.x, z.centerY() + 0.7f, z.z, "+" + scrap, 0xFFD54F, 1.0f, z.isBoss() ? 1.5f : 0.9f);
         if (z.isBoss()) {
-            int c = 2 + waves.wave / 10;
-            player.cores += c;
-            addText(z.x, z.centerY() + 1.6f, z.z, "+" + c + " çekirdek", 0x4DD0E1, 2.2f, 1.4f);
             camera.addShake(0.7f);
             particles.explosion(z.x, z.centerY(), z.z, 3.5f);
         }
+    }
+
+    // ---- yoldaşlar ------------------------------------------------------
+
+    private void updateNpcs(float dt) {
+        for (int i = 0; i < npcs.size(); i++) {
+            npcs.get(i).update(this, dt);
+        }
+        // birbirlerinin içinden geçmesinler
+        for (int i = 0; i < npcs.size(); i++) {
+            Npc a = npcs.get(i);
+            if (a.downed) continue;
+            for (int j = i + 1; j < npcs.size(); j++) {
+                Npc b = npcs.get(j);
+                if (b.downed) continue;
+                float dx = b.x - a.x, dz = b.z - a.z;
+                float minD = a.radius() + b.radius();
+                float d2 = dx * dx + dz * dz;
+                if (d2 > minD * minD || d2 < 1e-5f) continue;
+                float d = (float) Math.sqrt(d2);
+                float push = (minD - d) * 0.5f;
+                a.x -= dx / d * push;
+                a.z -= dz / d * push;
+                b.x += dx / d * push;
+                b.z += dz / d * push;
+            }
+        }
+        advisor.update(this, dt);
+    }
+
+    /** Kışla seviyesinin izin verdiği yoldaş sayısı. */
+    public int npcCapacity() {
+        int cap = 0;
+        for (int i = 0; i < structures.size(); i++) {
+            Structure s = structures.get(i);
+            if (s.alive && s.type == Balance.S_BARRACKS) {
+                cap += s.level * Balance.NPC_PER_BARRACKS_LEVEL;
+            }
+        }
+        return Math.min(Balance.NPC_MAX, cap);
+    }
+
+    public Structure barracks() {
+        for (int i = 0; i < structures.size(); i++) {
+            Structure s = structures.get(i);
+            if (s.alive && s.type == Balance.S_BARRACKS) return s;
+        }
+        return null;
+    }
+
+    public int barracksLevel() {
+        Structure b = barracks();
+        return b == null ? 1 : b.level;
+    }
+
+    public void recruitNpc(int role) {
+        Structure b = barracks();
+        if (b == null) {
+            message("Önce bir Kışla kurmalısın", 2f);
+            audio.playError();
+            return;
+        }
+        if (npcs.size() >= npcCapacity()) {
+            message("Yoldaş hakkın dolu — kışlayı geliştir", 2.2f);
+            audio.playError();
+            return;
+        }
+        Balance.NpcDef d = Balance.npc(role);
+        int cost = player.buildCost(d.hire);
+        if (player.scrap < cost) {
+            message("Yetersiz hurda (" + cost + ")", 1.8f);
+            audio.playError();
+            return;
+        }
+        player.scrap -= cost;
+        Npc n = new Npc();
+        float a = MathX.rnd(0f, MathX.TAU);
+        n.init(role, b.level, npcs.size(), b.x + (float) Math.cos(a) * 2.2f,
+                b.z + (float) Math.sin(a) * 2.2f);
+        npcs.add(n);
+        audio.playUpgrade();
+        big(n.name + " ekibe katıldı (" + d.name + ")", 2.2f);
+        npcSays(n, "Emrindeyim.");
+    }
+
+    public void orderNpc(int npcIndex, int order, float ox, float oz) {
+        if (npcIndex < 0 || npcIndex >= npcs.size()) return;
+        Npc n = npcs.get(npcIndex);
+        n.setOrder(order, ox, oz);
+        audio.playClick();
+        npcSays(n, orderReply(n, order));
+    }
+
+    public void orderAll(int order, float ox, float oz) {
+        for (int i = 0; i < npcs.size(); i++) {
+            npcs.get(i).setOrder(order, ox, oz);
+        }
+        if (!npcs.isEmpty()) {
+            audio.playClick();
+            message("Tüm ekip: " + Npc.ORDER_NAMES[order], 1.8f);
+        }
+    }
+
+    private String orderReply(Npc n, int order) {
+        switch (order) {
+            case Npc.ORDER_HOLD: return "Burayı tutuyorum.";
+            case Npc.ORDER_DEFEND_CORE: return "Reaktörün başındayım.";
+            case Npc.ORDER_GATHER: return "Ganimeti topluyorum.";
+            case Npc.ORDER_REPAIR: return "Hasarlı yapılara bakıyorum.";
+            case Npc.ORDER_ATTACK: return "Saldırıya geçiyorum!";
+            case Npc.ORDER_RETREAT: return "Geri çekiliyorum.";
+            default: return "Peşindeyim.";
+        }
+    }
+
+    public void npcSays(Npc n, String text) {
+        message(n.name + " (" + n.roleName() + "): " + text, 3f);
+        addText(n.x, 2.1f, n.z, text.length() > 22 ? text.substring(0, 21) + "…" : text,
+                0xB3E5FC, 2.2f, 0.8f);
+    }
+
+    public void onNpcDowned(Npc n) {
+        audio.playPlayerDown();
+        message(n.name + " yere düştü! Sağlıkçı yanına giderse daha çabuk kalkar.", 3f);
+        particles.blood(n.x, 0.8f, n.z, 0f, 0f, 12);
+    }
+
+    public void reviveNpc(Npc n) {
+        n.downed = false;
+        n.hp = n.maxHp * 0.5f;
+        n.target = null;
+        Structure b = barracks();
+        if (b != null) {
+            n.x = b.x + MathX.rnd(-1.6f, 1.6f);
+            n.z = b.z + MathX.rnd(-1.6f, 1.6f);
+        }
+        npcSays(n, "Ayaktayım.");
+    }
+
+    public void npcShoot(Npc n, Zombie t) {
+        Balance.NpcDef d = n.def();
+        float[] m = n.muzzle();
+        float dx = t.x - m[0], dz = t.z - m[2];
+        float l = MathX.len(dx, dz);
+        if (l < 1e-4f) return;
+        dx /= l;
+        dz /= l;
+        particles.muzzleFlash(m[0], m[1], m[2], dx, dz);
+        tracer(m[0], m[1], m[2], t.x, t.centerY(), t.z, 0xFFE0A3, 0.06f, 0.035f);
+        float dmg = d.damageAt(n.level);
+        boolean killed = t.hurt(dmg, dx, dz);
+        t.knockback(dx, dz, 0.7f);
+        particles.blood(t.x, t.centerY(), t.z, dx, dz, 4);
+        addText(t.x, t.centerY() + 0.55f, t.z, String.valueOf(Math.round(dmg)), 0xB0E0A8, 0.6f, 0.7f);
+        if (killed) onZombieKilled(t, null);
+        audio.playNpcShot();
+    }
+
+    /** Yoldaşların hedef seçimi: önce yapıya/oyuncuya saldıran zombiler. */
+    public Zombie bestZombieFor(float x, float z, float range) {
+        Zombie best = null;
+        float bestScore = Float.MAX_VALUE;
+        for (int i = 0; i < zombies.size(); i++) {
+            Zombie zz = zombies.get(i);
+            if (!zz.alive || zz.state == Zombie.ST_SPAWN) continue;
+            float d2 = MathX.dist2(x, z, zz.x, zz.z);
+            if (d2 > range * range) continue;
+            float score = d2;
+            if (zz.state == Zombie.ST_ATTACK) score *= 0.5f;
+            if (zz.isBoss()) score *= 0.7f;
+            if (score < bestScore) {
+                bestScore = score;
+                best = zz;
+            }
+        }
+        return best;
+    }
+
+    public Structure mostDamagedStructure(float x, float z, float range) {
+        Structure best = null;
+        float bestScore = -1f;
+        for (int i = 0; i < structures.size(); i++) {
+            Structure s = structures.get(i);
+            if (!s.alive || s.hp >= s.maxHp - 1f) continue;
+            float d = MathX.dist(x, z, s.x, s.z);
+            if (d > range) continue;
+            float missing = 1f - s.hpFraction();
+            float score = missing * 100f - d;
+            if (score > bestScore) {
+                bestScore = score;
+                best = s;
+            }
+        }
+        return best;
+    }
+
+    private final float[] allyPos = new float[2];
+
+    /** Sağlıkçı için: menzildeki en yaralı dost (oyuncu ya da yoldaş). */
+    public float[] nearestHurtAlly(float x, float z, float range) {
+        float bestNeed = 0.12f;
+        boolean found = false;
+        if (player.alive && player.hp < player.maxHp * 0.92f
+                && MathX.dist(x, z, player.x, player.z) < range) {
+            bestNeed = 1f - player.hp / player.maxHp;
+            allyPos[0] = player.x;
+            allyPos[1] = player.z;
+            found = true;
+        }
+        for (int i = 0; i < npcs.size(); i++) {
+            Npc o = npcs.get(i);
+            if (MathX.dist(x, z, o.x, o.z) > range) continue;
+            float need = o.downed ? 2f : 1f - o.hp / o.maxHp;
+            if (need > bestNeed) {
+                bestNeed = need;
+                allyPos[0] = o.x;
+                allyPos[1] = o.z;
+                found = true;
+            }
+        }
+        return found ? allyPos : null;
+    }
+
+    public boolean nearBase(float x, float z, float range) {
+        return MathX.len(x, z) < range;
+    }
+
+    // ---- yere düşen ganimet --------------------------------------------
+
+    /** Hurdayı birkaç yığına bölerek yere saçar. */
+    public void dropLoot(float x, float z, int scrap, int cores, int piles) {
+        if (scrap > 0) {
+            int n = MathX.clampI(piles, 1, 6);
+            int left = scrap;
+            for (int i = 0; i < n; i++) {
+                int part = (i == n - 1) ? left : Math.max(1, Math.round(scrap / (float) n));
+                part = Math.min(part, left);
+                left -= part;
+                if (part <= 0) break;
+                spawnPickup(Pickup.SCRAP, part, x, z);
+            }
+        }
+        for (int i = 0; i < cores; i++) {
+            spawnPickup(Pickup.CORE, 1, x, z);
+        }
+    }
+
+    /** Sahadaki yığın sayısı çok artarsa yenisini açmak yerine en yakına ekler. */
+    public void spawnPickup(int kind, int amount, float x, float z) {
+        if (pickups.size() >= 90) {
+            Pickup best = null;
+            float bestD = Float.MAX_VALUE;
+            for (int i = 0; i < pickups.size(); i++) {
+                Pickup o = pickups.get(i);
+                if (!o.alive || o.kind != kind) continue;
+                float d = MathX.dist2(x, z, o.x, o.z);
+                if (d < bestD) {
+                    bestD = d;
+                    best = o;
+                }
+            }
+            if (best != null) {
+                best.amount += amount;
+                best.life = Math.max(best.life, Balance.PICKUP_LIFE * 0.6f);
+                return;
+            }
+        }
+        Pickup p = pickupPool.isEmpty() ? new Pickup() : pickupPool.remove(pickupPool.size() - 1);
+        p.init(kind, amount, x, z);
+        pickups.add(p);
+    }
+
+    public void collectPickup(Pickup p, boolean byPlayer) {
+        if (!p.alive) return;
+        p.alive = false;
+        if (p.kind == Pickup.CORE) {
+            player.cores += p.amount;
+            addText(p.x, 1.4f, p.z, "+" + p.amount + " çekirdek", 0x4DD0E1, 1.6f, 1.2f);
+            particles.sparks(p.x, 0.6f, p.z, 10, 0x4DD0E1);
+        } else {
+            player.scrap += p.amount;
+            scrapEarned += p.amount;
+            addText(p.x, 1.2f, p.z, "+" + p.amount, 0xFFD54F, 0.85f, 0.85f);
+            particles.sparks(p.x, 0.5f, p.z, 5, 0xFFD54F);
+        }
+        audio.playPickup();
+    }
+
+    /** Dalga bitince sahada kalan ganimet kendiliğinden toplanır. */
+    private void sweepPickups() {
+        int scrap = 0, cores = 0;
+        for (int i = pickups.size() - 1; i >= 0; i--) {
+            Pickup p = pickups.get(i);
+            if (!p.alive) continue;
+            if (p.kind == Pickup.CORE) cores += p.amount;
+            else scrap += p.amount;
+            p.alive = false;
+        }
+        if (scrap > 0 || cores > 0) {
+            player.scrap += scrap;
+            player.cores += cores;
+            scrapEarned += scrap;
+            message("Sahadaki ganimet toplandı: +" + scrap + " hurda"
+                    + (cores > 0 ? ", +" + cores + " çekirdek" : ""), 2.4f);
+        }
+    }
+
+    private void updatePickups(float dt) {
+        for (int i = pickups.size() - 1; i >= 0; i--) {
+            Pickup p = pickups.get(i);
+            p.update(this, dt);
+            if (!p.alive) {
+                pickups.remove(i);
+                pickupPool.add(p);
+            }
+        }
+    }
+
+    public Pickup nearestPickup(float x, float z, float range) {
+        Pickup best = null;
+        float bestD = range * range;
+        for (int i = 0; i < pickups.size(); i++) {
+            Pickup p = pickups.get(i);
+            if (!p.grabbable()) continue;
+            float d = MathX.dist2(x, z, p.x, p.z);
+            if (d < bestD) {
+                bestD = d;
+                best = p;
+            }
+        }
+        return best;
     }
 
     public Zombie zombieAt(float x, float y, float z, float radius) {
@@ -950,6 +1296,18 @@ public class GameWorld {
         message("Yerleştirme yönü: " + (input.buildRotation * 90) + "°", 1.2f);
     }
 
+    /** Konumlu emir: hücre koordinatı dünya konumuna çevrilir. */
+    public void orderNpcAt(int npcIndex, int cellPacked, int order) {
+        int gx = cellPacked % BuildGrid.N;
+        int gz = cellPacked / BuildGrid.N;
+        float wx = BuildGrid.cellToWorld(gx), wz = BuildGrid.cellToWorld(gz);
+        if (npcIndex < 0) {
+            orderAll(order, wx, wz);
+        } else {
+            orderNpc(npcIndex, order, wx, wz);
+        }
+    }
+
     public void selectAt(int gx, int gz) {
         Structure s = grid.at(gx, gz);
         selected = s;
@@ -1136,6 +1494,7 @@ public class GameWorld {
     }
 
     public void onWaveCleared(int wave) {
+        sweepPickups();
         int reward = Math.round(Balance.waveScrapReward(wave) * player.scrapBonus());
         for (int i = 0; i < structures.size(); i++) {
             Structure s = structures.get(i);

@@ -248,6 +248,14 @@ public class Audio {
         play(SND_CLICK, 0.3f, 1.6f);
     }
 
+    public void playNpcShot() {
+        play(SND_RIFLE, 0.2f, MathX.rnd(1.02f, 1.18f));
+    }
+
+    public void playPickup() {
+        play(SND_UPGRADE, 0.16f, MathX.rnd(1.5f, 1.9f));
+    }
+
     public void playClick() {
         play(SND_CLICK, 0.22f, 1.2f);
     }

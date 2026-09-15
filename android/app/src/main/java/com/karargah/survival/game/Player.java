@@ -133,6 +133,23 @@ public class Player {
         return Math.max(1, Math.round(base * (1f - buildDiscount())));
     }
 
+    private final float[] muzzle = new float[3];
+
+    /**
+     * Namlu ucunun dünya konumu. Silah sağ ele bağlı ve nişan yönüne
+     * dönük olduğu için mermi tam buradan çıkar (eskiden gövde merkezinden
+     * çıkıyordu).
+     */
+    public void muzzleWorld(float[] out) {
+        Balance.WeaponDef d = weapon();
+        float c = (float) Math.cos(yaw), s = (float) Math.sin(yaw);
+        float wx = x + (Models.HAND_X * c + Models.HAND_Z * s);
+        float wz = z + (-Models.HAND_X * s + Models.HAND_Z * c);
+        out[0] = wx + (float) Math.sin(aimYaw) * d.muzzleZ;
+        out[1] = Models.HAND_Y + d.muzzleY;
+        out[2] = wz + (float) Math.cos(aimYaw) * d.muzzleZ;
+    }
+
     public Balance.WeaponDef weapon() {
         return Balance.weapon(currentWeapon);
     }
@@ -339,9 +356,8 @@ public class Player {
 
         float dirX = (float) Math.sin(aimYaw);
         float dirZ = (float) Math.cos(aimYaw);
-        float mx = x + dirX * 0.75f;
-        float mz = z + dirZ * 0.75f;
-        float my = 1.12f;
+        muzzleWorld(muzzle);
+        float mx = muzzle[0], my = muzzle[1], mz = muzzle[2];
         w.particles.muzzleFlash(mx, my, mz, dirX, dirZ);
 
         float dmg = def.damageAt(weaponLevel()) * damageMul();
