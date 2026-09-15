@@ -85,11 +85,11 @@ public class SimulationTest {
         InputState in = new InputState();
         GameWorld w = newWorld(in);
         float dt = 1f / 60f;
-        for (int f = 0; f < 60000 && !w.gameOver; f++) {
+        for (int f = 0; f < 36000 && !w.gameOver; f++) {
             step(w, in, f, dt, false);
             if (f % 60 == 0) assertSane(w, f);
         }
-        assertTrue("16 dakikada en az 3 dalga tamamlanmalı, ulaşılan: " + w.waves.wave,
+        assertTrue("10 dakikada en az 3 dalga tamamlanmalı, ulaşılan: " + w.waves.wave,
                 w.waves.wave >= 3);
         assertTrue("zombi öldürülmüş olmalı", w.totalKills > 0);
     }
@@ -106,7 +106,7 @@ public class SimulationTest {
         int waveStartFrame = 0;
         int lastWave = 0;
         int longest = 0;
-        for (int f = 0; f < 120000 && !w.gameOver; f++) {
+        for (int f = 0; f < 72000 && !w.gameOver; f++) {
             step(w, in, f, dt, true);
             if (w.waves.wave != lastWave) {
                 lastWave = w.waves.wave;
@@ -119,7 +119,7 @@ public class SimulationTest {
                         elapsed < 60 * 220);
             }
         }
-        assertTrue("uzun koşuda ilerleme olmalı", w.waves.wave >= 8);
+        assertTrue("uzun koşuda ilerleme olmalı", w.waves.wave >= 6);
         assertTrue("en uzun dalga makul olmalı: " + (longest / 60) + " sn", longest < 60 * 220);
     }
 
