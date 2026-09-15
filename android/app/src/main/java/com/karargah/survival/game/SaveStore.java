@@ -115,6 +115,8 @@ public final class SaveStore {
                 jn.put("oz", n.orderZ);
                 jn.put("col", n.collected);
                 jn.put("built", n.built);
+                jn.put("wlvl", n.weaponLevel);
+                jn.put("imp", n.selfImprove);
                 jn.put("x", n.x);
                 jn.put("z", n.z);
                 npcArr.put(jn);
@@ -254,6 +256,8 @@ public final class SaveStore {
                     n.duties = jn.optInt("duties", Balance.defaultDuties(n.role));
                     n.collected = jn.optInt("col", 0);
                     n.built = jn.optInt("built", 0);
+                    n.weaponLevel = Math.max(1, jn.optInt("wlvl", 1));
+                    n.selfImprove = jn.optBoolean("imp", true);
                     w.npcs.add(n);
                 }
             }

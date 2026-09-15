@@ -466,10 +466,13 @@ public final class Balance {
     public static final int STANCE_DEFEND = 2;
     public static final int STANCE_ATTACK = 3;
     public static final int STANCE_RETREAT = 4;
-    public static final int STANCE_COUNT = 5;
+    /** Serbest: yoldaş nerede duracağına duruma bakarak kendisi karar verir. */
+    public static final int STANCE_AUTO = 5;
+    public static final int STANCE_COUNT = 6;
     public static final String[] STANCE_NAMES = {
-            "Takip et", "Burayı tut", "Reaktörü koru", "Bölgeye saldır", "Geri çekil"};
-    public static final String[] STANCE_SHORT = {"TAKİP", "TUT", "KORU", "SALDIR", "ÇEKİL"};
+            "Takip et", "Burayı tut", "Reaktörü koru", "Bölgeye saldır", "Geri çekil",
+            "Serbest karar"};
+    public static final String[] STANCE_SHORT = {"TAKİP", "TUT", "KORU", "SALDIR", "ÇEKİL", "SERBEST"};
 
     // Görevler: bir yoldaşa aynı anda birden fazlası verilebilir (bit maskesi).
     public static final int DUTY_FIGHT = 1;
@@ -495,6 +498,24 @@ public final class Balance {
     /** İnşaat hızı: saniyede tamamlanan oran (iş gücüne göre). */
     public static final float BUILD_WORK_PER_SEC = 0.055f;
 
+    public static final int NPC_MAX_LEVEL = 5;
+    public static final int NPC_WEAPON_MAX = 5;
+    /** Yoldaşın kendini geliştirmesi için kasada bırakması gereken asgari hurda. */
+    public static final int NPC_TREASURY_RESERVE = 320;
+
+    public static int npcLevelCost(int level) {
+        return Math.round(150f * (float) Math.pow(1.7f, level - 1));
+    }
+
+    public static int npcWeaponCost(int weaponLevel) {
+        return Math.round(110f * (float) Math.pow(1.6f, weaponLevel - 1));
+    }
+
+    /** Silah seviyesinin hasar çarpanı. */
+    public static float npcWeaponMul(int weaponLevel) {
+        return 1f + 0.22f * (weaponLevel - 1);
+    }
+
     /** Kışla seviyesi başına yoldaş hakkı. */
     public static final int NPC_PER_BARRACKS_LEVEL = 1;
     public static final int NPC_MAX = 6;
@@ -504,7 +525,8 @@ public final class Balance {
     /** Oyuncunun ganimeti kendine çekme yarıçapı. */
     public static final float PICKUP_MAGNET = 4.2f;
     public static final float PICKUP_GRAB = 1.25f;
-    public static final float PICKUP_LIFE = 90f;
+    /** Ganimet yerde kalır; kendiliğinden yok olmaz (toplanana kadar durur). */
+    public static final float PICKUP_LIFE = Float.MAX_VALUE * 0.5f;
 
     // ---- güç ------------------------------------------------------------
     public static final float MIN_POWER_EFFICIENCY = 0.42f;

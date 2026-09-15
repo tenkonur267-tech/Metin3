@@ -289,6 +289,7 @@ public class GameWorld {
                 case Cmd.PLAN: addPlan(c.a, c.b, c.c, false); break;
                 case Cmd.CANCEL_PLAN: cancelPlanAt(c.b, c.c); break;
                 case Cmd.CANCEL_ALL_PLANS: cancelAllPlans(); break;
+                case Cmd.SELF_IMPROVE: toggleSelfImprove(c.a); break;
                 case Cmd.TOGGLE_AUTOBUILD:
                     autoRebuild = !autoRebuild;
                     message(autoRebuild
@@ -671,6 +672,28 @@ public class GameWorld {
         npcSays(n, dutyName(dutyBit) + (n.hasDuty(dutyBit) ? " görevini aldım." : " görevini bıraktım."));
     }
 
+    /** Kendini geliştirme iznini aç/kapat (npcIndex < 0 ise tüm ekip). */
+    public void toggleSelfImprove(int npcIndex) {
+        if (npcs.isEmpty()) return;
+        if (npcIndex < 0) {
+            boolean anyOff = false;
+            for (int i = 0; i < npcs.size(); i++) {
+                if (!npcs.get(i).selfImprove) anyOff = true;
+            }
+            for (int i = 0; i < npcs.size(); i++) npcs.get(i).selfImprove = anyOff;
+            message("Tüm ekip · kendini geliştirme: " + (anyOff ? "açık" : "kapalı"), 1.8f);
+            audio.playClick();
+            return;
+        }
+        if (npcIndex >= npcs.size()) return;
+        Npc n = npcs.get(npcIndex);
+        n.selfImprove = !n.selfImprove;
+        audio.playClick();
+        npcSays(n, n.selfImprove
+                ? "Kasada bolluk olursa kendimi geliştiririm."
+                : "Kasaya dokunmayacağım.");
+    }
+
     private static String dutyName(int dutyBit) {
         for (int i = 0; i < Balance.DUTY_BITS.length; i++) {
             if (Balance.DUTY_BITS[i] == dutyBit) return Balance.DUTY_NAMES[i];
@@ -690,8 +713,7 @@ public class GameWorld {
 
     public void npcSays(Npc n, String text) {
         message(n.name + " (" + n.roleName() + "): " + text, 3f);
-        addText(n.x, 2.1f, n.z, text.length() > 22 ? text.substring(0, 21) + "…" : text,
-                0xB3E5FC, 2.2f, 0.8f);
+        n.say(text, 4f);
     }
 
     public void onNpcDowned(Npc n) {
@@ -722,13 +744,124 @@ public class GameWorld {
         dz /= l;
         particles.muzzleFlash(m[0], m[1], m[2], dx, dz);
         tracer(m[0], m[1], m[2], t.x, t.centerY(), t.z, 0xFFE0A3, 0.06f, 0.035f);
-        float dmg = d.damageAt(n.level);
+        float dmg = n.damage();
         boolean killed = t.hurt(dmg, dx, dz);
         t.knockback(dx, dz, 0.7f);
         particles.blood(t.x, t.centerY(), t.z, dx, dz, 4);
         addText(t.x, t.centerY() + 0.55f, t.z, String.valueOf(Math.round(dmg)), 0xB0E0A8, 0.6f, 0.7f);
         if (killed) onZombieKilled(t, null);
         audio.playNpcShot();
+    }
+
+    // ---- serbest duruş: yoldaş nereye gideceğine kendisi karar verir -----
+
+    public static final int AUTO_CORE = 0;
+    public static final int AUTO_BREACH = 1;
+    public static final int AUTO_PLAYER = 2;
+    public static final int AUTO_FRONT = 3;
+    public static final int AUTO_WORK = 4;
+    private static final String[] AUTO_SAY = {
+            "Reaktörün başına geçiyorum!",
+            "İçeri sızan var, kesiyorum!",
+            "Yanına geliyorum, dayan!",
+            "Ön hatta geçiyorum.",
+            "İşimin başındayım."
+    };
+    private final float[] autoStation = new float[4];
+
+    /**
+     * Durumu okuyup yoldaşın nerede durması gerektiğine karar verir.
+     * Öncelik: reaktör tehdidi > üsse sızma > tehlikedeki oyuncu > ön hat > iş.
+     * @return [x, z, varışYarıçapı, kipKodu]
+     */
+    public float[] autoStationFor(Npc n) {
+        int mode = AUTO_WORK;
+        float tx = player.x, tz = player.z, arrive = 2.2f;
+
+        // 1) Reaktörün dibinde zombi var mı?
+        Zombie coreThreat = bestZombieFor(0f, 0f, 15f);
+        if (coreThreat != null) {
+            mode = AUTO_CORE;
+            float a = (float) Math.atan2(coreThreat.x, coreThreat.z);
+            tx = (float) Math.sin(a) * 7.5f;
+            tz = (float) Math.cos(a) * 7.5f;
+            arrive = 1.4f;
+        } else {
+            // 2) Üs alanına sızan zombi
+            Zombie inside = null;
+            float bestD = Float.MAX_VALUE;
+            for (int i = 0; i < zombies.size(); i++) {
+                Zombie z = zombies.get(i);
+                if (!z.alive || z.state == Zombie.ST_SPAWN) continue;
+                float dc = MathX.len(z.x, z.z);
+                if (dc > Balance.BUILD_RADIUS * 0.8f) continue;
+                float d = MathX.dist2(n.x, n.z, z.x, z.z);
+                if (d < bestD) {
+                    bestD = d;
+                    inside = z;
+                }
+            }
+            if (inside != null) {
+                mode = AUTO_BREACH;
+                tx = inside.x;
+                tz = inside.z;
+                arrive = Math.max(2f, n.def().range * 0.6f);
+            } else if (player.alive && player.hp < player.maxHp * 0.45f
+                    && bestZombieFor(player.x, player.z, 11f) != null) {
+                mode = AUTO_PLAYER;
+                tx = player.x;
+                tz = player.z;
+                arrive = 2.5f;
+            } else if (waves.phase == WaveManager.PHASE_WAVE) {
+                // 4) Zombilerin en yoğun geldiği yöne, savunma halkasına geç
+                float sx = 0f, sz = 0f;
+                int count = 0;
+                for (int i = 0; i < zombies.size(); i++) {
+                    Zombie z = zombies.get(i);
+                    if (!z.alive) continue;
+                    float l = MathX.len(z.x, z.z);
+                    if (l < 0.01f) continue;
+                    sx += z.x / l;
+                    sz += z.z / l;
+                    count++;
+                }
+                mode = AUTO_FRONT;
+                if (count > 0) {
+                    float l = MathX.len(sx, sz);
+                    if (l > 0.01f) {
+                        float ring = 11.5f;
+                        float spread = ((n.index % 3) - 1) * 0.5f;
+                        float a = (float) Math.atan2(sx / l, sz / l) + spread;
+                        tx = (float) Math.sin(a) * ring;
+                        tz = (float) Math.cos(a) * ring;
+                    }
+                } else {
+                    tx = 0f;
+                    tz = 9f;
+                }
+                arrive = 1.6f;
+            } else {
+                // 5) Hazırlık: işi varsa iş zaten yönlendirir, yoksa oyuncunun yanı
+                mode = AUTO_WORK;
+                float a = MathX.TAU * (n.index % 6) / 6f + 0.6f;
+                tx = player.x + (float) Math.cos(a) * 2.6f;
+                tz = player.z + (float) Math.sin(a) * 2.6f;
+                arrive = 1.6f;
+            }
+        }
+
+        if (mode != n.autoMode) {
+            n.autoMode = mode;
+            if (n.autoSayCd <= 0f) {
+                n.autoSayCd = 9f;
+                n.say(AUTO_SAY[mode], 3f);
+            }
+        }
+        autoStation[0] = tx;
+        autoStation[1] = tz;
+        autoStation[2] = arrive;
+        autoStation[3] = mode;
+        return autoStation;
     }
 
     /** Yoldaşların hedef seçimi: önce yapıya/oyuncuya saldıran zombiler. */
@@ -862,23 +995,14 @@ public class GameWorld {
         audio.playPickup();
     }
 
-    /** Dalga bitince sahada kalan ganimet kendiliğinden toplanır. */
-    private void sweepPickups() {
-        int scrap = 0, cores = 0;
-        for (int i = pickups.size() - 1; i >= 0; i--) {
+    /** Sahada duran toplanmamış hurda miktarı (arayüzde gösterilir). */
+    public int looseScrap() {
+        int scrap = 0;
+        for (int i = 0; i < pickups.size(); i++) {
             Pickup p = pickups.get(i);
-            if (!p.alive) continue;
-            if (p.kind == Pickup.CORE) cores += p.amount;
-            else scrap += p.amount;
-            p.alive = false;
+            if (p.alive && p.kind == Pickup.SCRAP) scrap += p.amount;
         }
-        if (scrap > 0 || cores > 0) {
-            player.scrap += scrap;
-            player.cores += cores;
-            scrapEarned += scrap;
-            message("Sahadaki ganimet toplandı: +" + scrap + " hurda"
-                    + (cores > 0 ? ", +" + cores + " çekirdek" : ""), 2.4f);
-        }
+        return scrap;
     }
 
     private void updatePickups(float dt) {
@@ -1704,10 +1828,32 @@ public class GameWorld {
 
     // ---- olaylar --------------------------------------------------------
 
+    /** Duruma uygun roldeki yoldaş konuşur (baloncuk + mesaj). */
+    public void squadReact(String text, int preferredRole) {
+        Npc speaker = null;
+        for (int i = 0; i < npcs.size(); i++) {
+            Npc n = npcs.get(i);
+            if (n.downed) continue;
+            if (n.role == preferredRole) {
+                speaker = n;
+                break;
+            }
+            if (speaker == null) speaker = n;
+        }
+        if (speaker != null) npcSays(speaker, text);
+    }
+
     public void onWaveStarted(int wave) {
         started = true;
         selected = null;
         input.buildMode = false;   // dalga başlayınca savaş moduna dön
+        if (Balance.isBossWave(wave)) {
+            squadReact("Dev geliyor! Ateşi ona yoğunlaştıralım, reaktörü koruyun.",
+                    Balance.NPC_GUARD);
+        } else {
+            squadReact(wave + ". dalga geliyor — amacımız reaktörü ayakta tutmak.",
+                    Balance.NPC_GUARD);
+        }
         flow.compute(grid);
         audio.playWaveStart();
         big(wave + ". DALGA" + (Balance.isBossWave(wave) ? " — MUTANT DEV!" : ""), 2.6f);
@@ -1715,7 +1861,6 @@ public class GameWorld {
     }
 
     public void onWaveCleared(int wave) {
-        sweepPickups();
         int reward = Math.round(Balance.waveScrapReward(wave) * player.scrapBonus());
         for (int i = 0; i < structures.size(); i++) {
             Structure s = structures.get(i);
@@ -1734,6 +1879,14 @@ public class GameWorld {
 
     public void onPrepareStarted() {
         input.buildMode = true;    // hazırlıkta doğrudan inşa moduna geç
+        int loose = looseScrap();
+        if (loose > 0) {
+            squadReact("Sahada " + loose + " hurda duruyor, toplamaya gidiyorum.",
+                    Balance.NPC_SCAVENGER);
+        } else {
+            squadReact("Hazırlık başladı: hasarı onarıp planları kuruyorum.",
+                    Balance.NPC_ENGINEER);
+        }
         message("Hazırlık: inşa et, geliştir, mevzilen", 3f);
     }
 

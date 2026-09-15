@@ -75,6 +75,7 @@ public class HudView extends View {
     private static final int A_PLAN_MODE = 37;
     private static final int A_CANCEL_PLANS = 38;
     private static final int A_AUTOBUILD = 39;
+    private static final int A_SELF_IMPROVE = 40;
 
     public interface Listener {
         void onNewGame();
@@ -233,6 +234,11 @@ public class HudView extends View {
             ui.labelShadow(c, "ekip +" + gw.scrapFromNpcs, rx - 128 * sc, top + 24 * sc,
                     13 * sc, UiKit.COL_DIM, Paint.Align.LEFT);
         }
+        int loose = gw.looseScrap();
+        if (loose > 0) {
+            ui.labelShadow(c, "yerde " + loose, rx - 128 * sc, top + 12 * sc, 13 * sc,
+                    0xFFFFE082, Paint.Align.LEFT);
+        }
         ui.rect(c, rx - 250 * sc, top + 38 * sc, rx - 58 * sc, top + 68 * sc, 10 * sc, 0xB0101613);
         ui.labelShadow(c, "ÇEKİRDEK " + p.cores, rx - 240 * sc, top + 60 * sc, 18 * sc,
                 UiKit.COL_CYAN, Paint.Align.LEFT);
@@ -364,6 +370,25 @@ public class HudView extends View {
             }
         }
 
+        // konuşma baloncukları (en yakın üç tanesi)
+        int bubbles = 0;
+        for (int i = 0; i < gw.npcs.size() && bubbles < 3; i++) {
+            Npc n;
+            try {
+                n = gw.npcs.get(i);
+            } catch (IndexOutOfBoundsException e) {
+                break;
+            }
+            if (n == null || !n.alive || n.bubbleTimer <= 0f || n.bubble == null
+                    || n.bubble.isEmpty()) {
+                continue;
+            }
+            if (!M4.project(tmpVP, n.x, 2.45f, n.z, vw, vh, tmp4, outXY)) continue;
+            drawBubble(c, outXY[0], outXY[1] - 26 * sc, n.bubble,
+                    Math.min(1f, n.bubbleTimer));
+            bubbles++;
+        }
+
         // süzülen yazılar
         for (int i = 0; i < gw.texts.size(); i++) {
             FloatingText t;
@@ -382,6 +407,48 @@ public class HudView extends View {
     }
 
     private final float[] tmpVP = new float[16];
+
+    /** Karakterin başının üstünde kuyruklu konuşma baloncuğu. */
+    private void drawBubble(Canvas c, float cx, float cy, String text, float alpha) {
+        float size = 15 * sc;
+        float maxW = 230 * sc;
+        String line1 = text;
+        String line2 = null;
+        if (ui.textWidth(text, size) > maxW) {
+            int split = text.length() / 2;
+            int space = text.lastIndexOf(' ', split + 6);
+            if (space < 3) space = split;
+            line1 = text.substring(0, space).trim();
+            line2 = text.substring(space).trim();
+        }
+        float w1 = ui.textWidth(line1, size);
+        float w2 = line2 == null ? 0 : ui.textWidth(line2, size);
+        float bw = Math.min(maxW + 24 * sc, Math.max(w1, w2) + 22 * sc);
+        float bh = (line2 == null ? 30f : 48f) * sc;
+        float l = cx - bw * 0.5f, t = cy - bh;
+
+        int bg = UiKit.withAlpha(0x0E1713, 0.88f * alpha);
+        int border = UiKit.withAlpha(0x7FD4E8, 0.75f * alpha);
+        ui.rect(c, l, t, l + bw, t + bh, 10 * sc, bg);
+        ui.border(c, l, t, l + bw, t + bh, 10 * sc, border, 1.4f * sc);
+        // kuyruk
+        ui.fill.setStyle(Paint.Style.FILL);
+        ui.fill.setColor(bg);
+        android.graphics.Path tail = new android.graphics.Path();
+        tail.moveTo(cx - 7 * sc, t + bh - 1);
+        tail.lineTo(cx + 7 * sc, t + bh - 1);
+        tail.lineTo(cx, t + bh + 11 * sc);
+        tail.close();
+        c.drawPath(tail, ui.fill);
+
+        int col = UiKit.withAlpha(0xE8F4EC, alpha);
+        if (line2 == null) {
+            ui.label(c, line1, cx, t + bh * 0.66f, size, col, Paint.Align.CENTER);
+        } else {
+            ui.label(c, line1, cx, t + 19 * sc, size, col, Paint.Align.CENTER);
+            ui.label(c, line2, cx, t + 37 * sc, size, col, Paint.Align.CENTER);
+        }
+    }
     private LinearGradient vignetteTop, vignetteBottom;
     private float vignetteW, vignetteH;
 
@@ -984,7 +1051,8 @@ public class HudView extends View {
             ui.fill.setColor(0xFF000000 | roleColor);
             c.drawCircle(pad + 32 * sc, (t + b) * 0.5f, 9 * sc, ui.fill);
 
-            ui.label(c, n.name + "  ·  " + n.roleName() + " Sv." + n.level,
+            ui.label(c, n.name + "  ·  " + n.roleName() + " Sv." + n.level
+                            + "  ⚒" + n.weaponLevel,
                     pad + 50 * sc, t + 22 * sc, 18 * sc,
                     n.downed ? UiKit.COL_DANGER : UiKit.COL_TEXT, Paint.Align.LEFT);
             ui.label(c, n.statusText(), pad + 50 * sc, t + 40 * sc, 14 * sc,
@@ -1051,8 +1119,25 @@ public class HudView extends View {
                     !gw.npcs.isEmpty(), A_DUTY, i);
         }
 
+        // kendini geliştirme izni
+        float gy = dy + 2 * (bh + 6 * sc) + 6 * sc;
+        boolean improveOn;
+        if (validSel) {
+            improveOn = gw.npcs.get(squadSel).selfImprove;
+        } else {
+            improveOn = false;
+            for (int k = 0; k < gw.npcs.size(); k++) {
+                if (gw.npcs.get(k).selfImprove) improveOn = true;
+            }
+        }
+        ui.button(c, ox, gy, ox + ow, gy + 40 * sc,
+                improveOn ? "KENDİNİ GELİŞTİRSİN ✓" : "KENDİNİ GELİŞTİRSİN",
+                "hazırlıkta kasada bolluk varsa seviye/silah alır",
+                improveOn ? UiKit.STYLE_PRIMARY : UiKit.STYLE_GHOST,
+                !gw.npcs.isEmpty(), A_SELF_IMPROVE, 0);
+
         // --- yoldaş alma ---
-        float ry = dy + 2 * (bh + 6 * sc) + 12 * sc;
+        float ry = gy + 52 * sc;
         boolean hasBarracks = gw.barracks() != null;
         ui.label(c, hasBarracks ? "YOLDAŞ AL" : "YOLDAŞ AL — önce Kışla kur",
                 ox, ry, 19 * sc, hasBarracks ? UiKit.COL_GOLD : UiKit.COL_DIM, Paint.Align.LEFT);
@@ -1134,8 +1219,16 @@ public class HudView extends View {
             "İnşa görevi olan yoldaş gider, ortak kasadan ödeyip yapıyı kurar. OTO açıksa",
             "yıkılan yapılar için kendiliğinden plan açılır, ekip üssü kendi onarır.",
             "",
-            "GANİMET: Ölen zombiler yere hurda düşürür. Üstüne gidersen kendiliğinden çekilir,",
-            "toplayıcı yoldaş senin için toplar, dalga bitince kalanlar otomatik toplanır."
+            "GANİMET: Ölen zombiler yere hurda düşürür ve toplanana kadar orada kalır.",
+            "Üstüne gidersen kendiliğinden çekilir, TOPLA görevli yoldaş senin için toplar.",
+            "Üst çubuktaki \"yerde\" sayısı sahada kaç hurda beklediğini gösterir.",
+            "",
+            "AKILLI YOLDAŞ: SERBEST duruşta nerede duracağına kendisi karar verir —",
+            "reaktör tehdit altındaysa oraya koşar, üsse sızan olursa keser, sen",
+            "zor durumdaysan yanına gelir, dalga sırasında en yoğun cepheye geçer.",
+            "Ne yapacağını başının üstündeki baloncukta söyler. KENDİNİ GELİŞTİRSİN",
+            "açıkken hazırlıkta kasada bolluk varsa silahını ve seviyesini yükseltir",
+            "(kasada asgari yedek bırakır, harcadığını da söyler)."
     };
 
     private void drawHelp(Canvas c, float w, float h) {
@@ -1406,6 +1499,7 @@ public class HudView extends View {
                 break;
             case A_CANCEL_PLANS: input.push(new Cmd(Cmd.CANCEL_ALL_PLANS)); break;
             case A_AUTOBUILD: input.push(new Cmd(Cmd.TOGGLE_AUTOBUILD)); break;
+            case A_SELF_IMPROVE: input.push(new Cmd(Cmd.SELF_IMPROVE, squadSel)); break;
             case A_ORDER:
                 if (p == Balance.STANCE_HOLD || p == Balance.STANCE_ATTACK) {
                     pendingOrder = p;      // haritadan nokta bekle

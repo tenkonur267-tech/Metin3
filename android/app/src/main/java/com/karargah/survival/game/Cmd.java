@@ -30,6 +30,7 @@ public class Cmd {
     public static final int CANCEL_PLAN = 26;
     public static final int CANCEL_ALL_PLANS = 27;
     public static final int TOGGLE_AUTOBUILD = 28;
+    public static final int SELF_IMPROVE = 29;
 
     public final int op;
     public final int a, b, c;

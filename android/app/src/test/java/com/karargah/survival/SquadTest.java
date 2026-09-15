@@ -122,16 +122,118 @@ public class SquadTest {
         assertTrue("üstüne gidince toplanmalı", w.player.scrap > scrapBefore);
     }
 
+    /** Ganimet dalga bitince kaybolmamalı, toplanana kadar yerde durmalı. */
     @Test
-    public void dalgaSonundaKalanGanimetToplanir() {
+    public void ganimetDalgaSonundaKaybolmaz() {
         InputState in = new InputState();
         GameWorld w = world(in);
-        int before = w.player.scrap;
+        w.player.x = -40f;
+        w.player.z = -40f;          // oyuncu uzakta, kendiliğinden toplamasın
         w.dropLoot(40f, 40f, 75, 0, 3);
         run(w, 2f);
-        assertTrue(!w.pickups.isEmpty());
+        int piles = w.pickups.size();
+        assertTrue("ganimet düşmeli", piles > 0);
+        assertEquals("yerdeki hurda sayılmalı", 75, w.looseScrap());
+
         w.onWaveCleared(1);
-        assertTrue("dalga bitince sahadaki ganimet toplanmalı", w.player.scrap >= before + 75);
+        assertEquals("dalga bitince ganimet silinmemeli", piles, w.pickups.size());
+
+        Pickup first = w.pickups.get(0);
+        run(w, 120f);               // uzun süre beklese de durmalı
+        assertTrue("ganimetin ömrü dolmamalı", first.alive);
+        assertTrue("yerdeki hurda kaybolmamalı", w.looseScrap() >= 75);
+    }
+
+    /** Asıl şikâyet: zombiler ortalıktayken de yoldaş ganimeti toplayabilmeli. */
+    @Test
+    public void yoldasCatismaSirasindaDaGanimetToplar() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_SCAVENGER);
+        n.selfImprove = false;      // ölçümü kasa harcaması bulandırmasın
+        w.player.x = n.x;
+        w.player.z = n.z;
+        // uzakta birkaç zombi olsun (yakın tehdit değil)
+        w.spawnZombie(Balance.Z_WALKER, n.x + 24f, n.z + 18f, false);
+        w.spawnZombie(Balance.Z_WALKER, n.x - 26f, n.z - 20f, false);
+        int before = w.scrap();
+        w.dropLoot(n.x + 7f, n.z + 3f, 50, 0, 2);
+        run(w, 16f);
+        assertTrue("çatışma ortamında da toplamalı (kasa " + before + " -> " + w.scrap() + ")",
+                w.scrap() > before);
+        assertTrue(n.collected > 0);
+    }
+
+    @Test
+    public void yoldasKendiniGelistirir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        assertEquals(1, n.weaponLevel);
+        assertTrue(n.selfImprove);
+        w.player.scrap = 4000;
+        int before = w.scrap();
+        run(w, 40f);              // hazırlık aşamasındayız
+        assertTrue("silahını ya da kendini geliştirmeli",
+                n.weaponLevel > 1 || n.level > 1);
+        assertTrue("kasadan harcamalı", w.scrap() < before);
+        assertTrue("kasada asgari yedek kalmalı", w.scrap() >= Balance.NPC_TREASURY_RESERVE);
+        assertTrue("ne yaptığını söylemeli", n.bubble != null && !n.bubble.isEmpty());
+    }
+
+    @Test
+    public void kasaAzkenKendiniGelistirmez() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        w.player.scrap = 200;     // yedeğin altında
+        run(w, 30f);
+        assertEquals("kasa azken harcamamalı", 1, n.weaponLevel);
+        assertEquals(1, n.level);
+        assertEquals(200, w.scrap());
+    }
+
+    @Test
+    public void serbestDurusReaktoruSavunur() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        assertEquals("yeni yoldaş serbest karar verir", Balance.STANCE_AUTO, n.stance);
+        n.selfImprove = false;
+        n.x = 30f;
+        n.z = 30f;
+        w.player.x = 34f;
+        w.player.z = 34f;
+        // Reaktörün dibine dayanıklı bir zombi: kuleler hemen temizlemesin
+        w.spawnZombie(Balance.Z_BRUTE, 5f, 5f, true);
+
+        float startD = MathX.len(n.x, n.z);
+        float minD = startD;
+        boolean sawCoreMode = false;
+        for (int i = 0; i < 16 * 60; i++) {
+            w.update(1f / 60f);
+            minD = Math.min(minD, MathX.len(n.x, n.z));
+            if (n.autoMode == GameWorld.AUTO_CORE) sawCoreMode = true;
+        }
+        assertTrue("reaktör tehdidini fark etmeli", sawCoreMode);
+        assertTrue("reaktöre doğru yaklaşmalı (" + startD + " -> " + minD + ")",
+                minD < startD - 15f);
+    }
+
+    @Test
+    public void gorevDegisinceBaloncukGosterir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        w.player.x = n.x;
+        w.player.z = n.z;
+        Structure s = w.placeFree(Balance.S_WALL, BuildGrid.worldToCell(n.x + 4f),
+                BuildGrid.worldToCell(n.z));
+        assertNotNull(s);
+        s.hp = s.maxHp * 0.3f;
+        run(w, 3f);
+        assertTrue("ne yaptığını baloncukta söylemeli",
+                n.bubble != null && !n.bubble.isEmpty() && n.bubbleTimer > 0f);
     }
 
     @Test
@@ -139,6 +241,7 @@ public class SquadTest {
         InputState in = new InputState();
         GameWorld w = world(in);
         Npc n = hire(w, in, Balance.NPC_SCAVENGER);
+        n.selfImprove = false;
         int before = w.player.scrap;
         w.player.x = n.x;
         w.player.z = n.z;
@@ -255,6 +358,7 @@ public class SquadTest {
         InputState in = new InputState();
         GameWorld w = world(in);
         Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        n.selfImprove = false;
         assertTrue("mühendis inşa görevini taşır", n.hasDuty(Balance.DUTY_BUILD));
 
         int gx = BuildGrid.worldToCell(n.x + 5f), gz = BuildGrid.worldToCell(n.z + 2f);

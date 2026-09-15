@@ -54,6 +54,18 @@ public class Npc {
     public int collected;
     public int built;
     public int repaired;
+    /** Kendi silah seviyesi (kendi hurdasıyla geliştirir). */
+    public int weaponLevel = 1;
+    /** Kasada bolluk varken kendini geliştirmesine izin var mı? */
+    public boolean selfImprove = true;
+    /** Başının üstünde görünen konuşma baloncuğu. */
+    public String bubble = "";
+    public float bubbleTimer;
+    private float improveCd = 5f;
+    private int lastSpokenTask = -1;
+    /** Serbest duruşta seçtiği son kip (GameWorld.AUTO_*). */
+    public int autoMode = -1;
+    public float autoSayCd;
 
     // yol takibi
     private final int[] path = new int[160];
@@ -85,9 +97,21 @@ public class Npc {
         this.hp = maxHp;
         this.alive = true;
         this.downed = false;
-        this.stance = Balance.STANCE_FOLLOW;
+        this.stance = Balance.STANCE_AUTO;      // varsayılan: kendi karar versin
         this.duties = Balance.defaultDuties(role);
+        this.weaponLevel = 1;
+        this.selfImprove = true;
         this.chatCd = MathX.rnd(4f, 12f);
+    }
+
+    /** Baloncukta bir şey söyler. */
+    public void say(String text, float seconds) {
+        bubble = text;
+        bubbleTimer = seconds;
+    }
+
+    public float damage() {
+        return def().damageAt(level) * Balance.npcWeaponMul(weaponLevel);
     }
 
     public Balance.NpcDef def() {
@@ -179,6 +203,9 @@ public class Npc {
         if (chatCd > 0f) chatCd -= dt;
         if (taskTimer > 0f) taskTimer -= dt;
         if (taskLock > 0f) taskLock -= dt;
+        if (bubbleTimer > 0f) bubbleTimer -= dt;
+        if (improveCd > 0f) improveCd -= dt;
+        if (autoSayCd > 0f) autoSayCd -= dt;
         taskElapsed += dt;
 
         if (downed) {
@@ -200,6 +227,7 @@ public class Npc {
             hp = Math.min(maxHp, hp + 3.5f * dt);
         }
 
+        trySelfImprove(w);
         acquireTarget(w);
         if (withdrawing) {
             task = TASK_NONE;
@@ -241,6 +269,13 @@ public class Npc {
                     destZ = orderZ;
                     arrive = 2.4f;
                     break;
+                case Balance.STANCE_AUTO: {
+                    float[] st = w.autoStationFor(this);
+                    destX = st[0];
+                    destZ = st[1];
+                    arrive = st[2];
+                    break;
+                }
                 default: {
                     float a = MathX.TAU * (index % 6) / 6f + 0.6f;
                     destX = w.player.x + (float) Math.cos(a) * 2.4f;
@@ -251,13 +286,12 @@ public class Npc {
             }
         }
 
-        // Dövüş görevi varsa ve düşman menzildeyse durup ateş eder.
+        // Dövüş: yakın tehditte durup ateş eder. İş yaparken yalnızca gerçekten
+        // yakın (5 birim) düşman için durur; yoksa işine yürürken ateş eder.
         if (!withdrawing && target != null && hasDuty(Balance.DUTY_FIGHT)) {
             float td = MathX.dist(x, z, target.x, target.z);
-            boolean threat = td < 6.5f;
-            if (threat || (task == TASK_NONE && td < def().range * 0.85f)) {
-                holdStill = true;
-            }
+            float stopRange = task == TASK_NONE ? def().range * 0.85f : 5f;
+            if (td < stopRange) holdStill = true;
         }
 
         if (!holdStill) {
@@ -266,12 +300,70 @@ public class Npc {
             moving = false;
         }
 
+        announceIntent(w);
         doTask(w, dt);
         shoot(w, dt);
 
         if (target != null) {
             yaw = MathX.approachAngle(yaw, (float) Math.atan2(target.x - x, target.z - z), dt * 9f);
         }
+    }
+
+    /** Ne yapmaya gittiğini baloncukla söyler (görev her değiştiğinde). */
+    private void announceIntent(GameWorld w) {
+        if (task == lastSpokenTask) return;
+        lastSpokenTask = task;
+        switch (task) {
+            case TASK_BUILD:
+                say(planTarget != null ? planTarget.def().name + " kuruyorum" : "Şantiyeye gidiyorum", 3.5f);
+                break;
+            case TASK_REPAIR:
+                say(workTarget != null ? workTarget.def().name + " onarıyorum" : "Onarıma gidiyorum", 3.5f);
+                break;
+            case TASK_HEAL:
+                say("Yaralıya gidiyorum", 3f);
+                break;
+            case TASK_GATHER:
+                say("Ganimeti alıyorum", 2.5f);
+                break;
+            default:
+                if (target != null) say("Hedef görüldü!", 2f);
+                break;
+        }
+    }
+
+    /**
+     * Kasada bolluk varsa hazırlık aşamasında kendini geliştirir: önce silahını,
+     * sonra kendi seviyesini. Kasada asgari yedek bırakır, oyuncunun parasını
+     * bitirmez ve ne yaptığını söyler.
+     */
+    private void trySelfImprove(GameWorld w) {
+        if (!selfImprove || improveCd > 0f || !w.waves.isPrepare()) return;
+        improveCd = 8f;
+        boolean canWeapon = weaponLevel < Balance.NPC_WEAPON_MAX;
+        boolean canLevel = level < Balance.NPC_MAX_LEVEL;
+        if (!canWeapon && !canLevel) return;
+
+        int weaponCost = Balance.npcWeaponCost(weaponLevel);
+        int levelCost = Balance.npcLevelCost(level);
+        boolean takeWeapon = canWeapon && (!canLevel || weaponLevel <= level);
+        int cost = takeWeapon ? weaponCost : levelCost;
+        if (w.scrap() - cost < Balance.NPC_TREASURY_RESERVE) return;
+        if (!w.spendScrap(cost)) return;
+
+        if (takeWeapon) {
+            weaponLevel++;
+            say("Silahımı geliştirdim (Sv." + weaponLevel + ")", 4f);
+            w.npcSays(this, "Kasada bolluk var, silahımı geliştirdim. -" + cost + " hurda");
+        } else {
+            level++;
+            float frac = hp / Math.max(1f, maxHp);
+            maxHp = def().hpAt(level);
+            hp = maxHp * Math.min(1f, frac + 0.15f);
+            say("Kendimi geliştirdim (Sv." + level + ")", 4f);
+            w.npcSays(this, "Eğitimimi ilerlettim, artık daha dayanıklıyım. -" + cost + " hurda");
+        }
+        w.addText(x, 2.4f, z, "-" + cost, 0xFFAB91, 1.2f, 0.85f);
     }
 
     // ---- görev seçimi ---------------------------------------------------
@@ -282,6 +374,7 @@ public class Npc {
             case Balance.STANCE_HOLD: return 14f;
             case Balance.STANCE_DEFEND: return 16f;
             case Balance.STANCE_ATTACK: return 8f;
+            case Balance.STANCE_AUTO: return w.waves.isPrepare() ? 26f : 15f;
             default: return 13f;
         }
     }
@@ -353,10 +446,12 @@ public class Npc {
             }
         }
         if (hasDuty(Balance.DUTY_GATHER)) {
-            Pickup p = w.nearestPickup(x, z, range * 2.2f);
+            Pickup p = w.nearestPickup(x, z, Math.max(30f, range * 2.5f));
             if (p != null) {
-                float score = 26f + Math.min(24f, w.pickups.size() * 1.5f)
-                        - MathX.dist(x, z, p.x, p.z) * 0.45f - rotationPenalty(TASK_GATHER);
+                float score = 46f + (prepare ? 25f : 0f)
+                        + Math.min(30f, w.pickups.size() * 2f)
+                        - MathX.dist(x, z, p.x, p.z) * 0.35f - rotationPenalty(TASK_GATHER);
+                if (role == Balance.NPC_SCAVENGER) score += 25f;   // uzmanı öncelik verir
                 if (score > best) {
                     best = score;
                     task = TASK_GATHER;

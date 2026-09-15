@@ -44,13 +44,23 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
 - **Ortak kasa:** Hurda ve çekirdek tek kasada. Senin topladığın, toplayıcının
   getirdiği, dalga ödülleri hep oraya girer; inşaat, geliştirme ve yoldaş
   ücretleri hep oradan ödenir. Üst çubukta ekibin katkısı ayrıca gösterilir.
+- **Serbest karar (varsayılan duruş):** Yoldaş nerede duracağına duruma bakarak
+  kendisi karar verir — reaktörün dibinde zombi varsa oraya koşar, üsse sızan
+  olursa keser, sen zor durumdaysan yanına gelir, dalga sırasında zombilerin
+  en yoğun geldiği cepheye geçer, hazırlıkta işinin başına döner.
+- **Konuşma baloncukları:** Ne yapacağını başının üstünde söyler ("Duvarı
+  onarıyorum", "Ganimeti alıyorum", "Reaktörün başına geçiyorum!").
+- **Kendini geliştirme:** İzin açıkken hazırlık aşamasında kasada bolluk varsa
+  kendi silahını ve seviyesini yükseltir; kasada asgari yedek bırakır ve ne
+  kadar harcadığını söyler. İstemezsen panelden kapatırsın.
 - Emir dışında da akıllıdırlar: A* ile duvarları dolaşır (takılmazlar), ateş
   hattı kapalıysa ateş etmez, canları azalınca kendiliğinden geri çekilip
   iyileşir ve üssün durumunu değerlendirip öneride bulunurlar ("enerji açığın
   var", "batı taraf savunmasız", "şantiyeler bekliyor, kimsede inşa görevi yok").
 - **Yere düşen ganimet:** Ölen zombiler hurda (boss ayrıca enerji çekirdeği)
-  düşürür. Yaklaşınca kendiliğinden çekilir, toplayıcı yoldaş senin için
-  toplar, dalga bitince sahada kalanlar otomatik toplanır.
+  düşürür ve **toplanana kadar yerde kalır** — kendiliğinden kaybolmaz.
+  Yaklaşınca mıknatıs gibi çekilir, TOPLA görevli yoldaş senin için toplar;
+  üst çubukta sahada bekleyen hurda miktarı görünür.
 - **Kayıt:** oyun otomatik kaydedilir, ana menüden "Devam Et" ile sürdürülür.
 
 ## Kontroller (dokunmatik)
