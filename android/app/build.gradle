@@ -1,0 +1,65 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.karargah.survival'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.karargah.survival"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            // Depoya anahtar koymuyoruz. CI'da KEYSTORE_FILE/KEYSTORE_PASSWORD/
+            // KEY_ALIAS/KEY_PASSWORD ortam değişkenleri verilirse gerçek imza
+            // kullanılır; verilmezse aşağıda debug imzasına düşeriz.
+            def ksPath = System.getenv("KEYSTORE_FILE")
+            if (ksPath != null && !ksPath.isEmpty() && file(ksPath).exists()) {
+                storeFile file(ksPath)
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Oyun tek modül ve yansıma kullanmıyor; küçültme kapalı tutularak
+            // sürüm derlemesinin sürprizsiz olması sağlanıyor.
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release.storeFile != null
+                    ? signingConfigs.release
+                    : signingConfigs.debug
+        }
+        debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/**']
+        }
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+// Oyun motoru tamamen kendi kodumuz: harici bağımlılık yok.
+dependencies { }

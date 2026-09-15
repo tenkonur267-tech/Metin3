@@ -1,3 +1,18 @@
+# Metin3 deposu
+
+Bu depoda iki ayrı oyun var:
+
+| Oyun | Tür | Nerede |
+|---|---|---|
+| **Son Karargâh** | Android (APK) · 3B hayatta kalma + üs savunma | [`android/`](android/README.md) |
+| **Metin3 — Üç Krallığın Gölgesi** | Tarayıcı · 3B rol yapma | bu klasör (aşağıdaki bölüm) |
+
+Android oyununun APK'sı GitHub Actions'ta derlenir: **Actions → "APK derle" →
+en son çalışma → Artifacts → `son-karargah-apk`**. Ayrıntılar için
+[`android/README.md`](android/README.md).
+
+---
+
 # Metin3 — Üç Krallığın Gölgesi
 
 Metin2'den esinlenen, tarayıcıda çalışan mobil uyumlu 3B rol yapma oyunu.

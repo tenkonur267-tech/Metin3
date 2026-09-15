@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Kalkan gövdesi -->
+    <path
+        android:fillColor="#4CD07A"
+        android:pathData="M54,26 L78,36 L78,58 C78,72 68,80 54,86 C40,80 30,72 30,58 L30,36 Z" />
+    <path
+        android:fillColor="#0E1A12"
+        android:pathData="M54,33 L72,40 L72,58 C72,68 64,74 54,79 C44,74 36,68 36,58 L36,40 Z" />
+    <!-- Kule silueti -->
+    <path
+        android:fillColor="#4CD07A"
+        android:pathData="M47,46 L61,46 L61,50 L58,50 L58,68 L50,68 L50,50 L47,50 Z" />
+    <path
+        android:fillColor="#F2C14E"
+        android:pathData="M43,41 L65,41 L65,45 L43,45 Z" />
+</vector>

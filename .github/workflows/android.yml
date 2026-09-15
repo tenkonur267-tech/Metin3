@@ -1,0 +1,70 @@
+name: APK derle
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Debug + Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: JDK 17 kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle önbelleği
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK kur
+        uses: android-actions/setup-android@v3
+
+      - name: Debug APK derle
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+
+      - name: Release APK derle
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_FILE: ${{ github.workspace }}/android/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          # İmza anahtarı gizli değişken olarak tanımlıysa onu kullan,
+          # tanımlı değilse Gradle otomatik olarak debug imzasına düşer.
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_FILE"
+          else
+            unset KEYSTORE_FILE
+          fi
+          ./gradlew --no-daemon assembleRelease
+
+      - name: APK'ları yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: son-karargah-apk
+          if-no-files-found: error
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+
+      - name: Özet
+        run: |
+          echo "### Son Karargâh APK hazır" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Artifacts bölümünden \`son-karargah-apk\` dosyasını indirip telefona kurabilirsin." >> $GITHUB_STEP_SUMMARY
+          ls -la android/app/build/outputs/apk/*/ >> $GITHUB_STEP_SUMMARY || true
