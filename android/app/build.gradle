@@ -59,7 +59,17 @@ android {
     lint {
         abortOnError false
     }
+
+    testOptions {
+        unitTests {
+            // Oyun mantığı saf Java; Android çağrıları testte sessizce boş döner.
+            returnDefaultValues = true
+        }
+    }
 }
 
-// Oyun motoru tamamen kendi kodumuz: harici bağımlılık yok.
-dependencies { }
+// Oyun motoru tamamen kendi kodumuz: uygulamada harici bağımlılık yok.
+// JUnit yalnızca yerel birim testleri için kullanılır, APK'ya girmez.
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

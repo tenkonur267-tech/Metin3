@@ -31,6 +31,8 @@ public class Zombie {
     public boolean removeMe;
     public Structure targetStruct;
     public boolean targetingPlayer;
+    /** Hedef, yol üstündeki engel değil de uzaktan dövülen bir yapıysa true. */
+    private boolean rangedLocked;
     public float specialCd;
     public float scale = 1f;
     public float hitFlashTimer;
@@ -62,6 +64,7 @@ public class Zombie {
         this.deadTime = 0f;
         this.animPhase = MathX.rnd(0f, MathX.TAU);
         this.targetStruct = null;
+        this.rangedLocked = false;
         this.slowFactor = 1f;
         this.slowTimer = 0f;
         this.burnTimer = 0f;
@@ -205,11 +208,19 @@ public class Zombie {
         }
         targetingPlayer = false;
 
+        // Öfke modunda uzaktan yapı dövmek bırakılır; herkes reaktöre yürür.
+        boolean rage = w.waves.rage;
+        if (rage && rangedLocked) {
+            rangedLocked = false;
+            targetStruct = null;
+        }
+
         // Menzilli zombiler yakın yapıyı uzaktan döver.
-        if (def.rangedRange > 0f) {
+        if (def.rangedRange > 0f && !rage) {
             Structure s = w.nearestStructure(x, z, def.rangedRange);
             if (s != null) {
                 targetStruct = s;
+                rangedLocked = true;
                 state = ST_ATTACK;
                 return;
             }
@@ -218,7 +229,7 @@ public class Zombie {
         if (targetStruct != null && !targetStruct.alive) targetStruct = null;
         if (targetStruct != null) {
             float d = MathX.dist(x, z, targetStruct.x, targetStruct.z);
-            if (d > Balance.CELL * 1.6f + radius()) {
+            if (d > targetStruct.footprintRadius() + radius() + 1.4f) {
                 targetStruct = null;
             } else {
                 state = ST_ATTACK;
@@ -246,7 +257,7 @@ public class Zombie {
         if (attackCd <= 0f && stunTimer <= 0f) {
             attackCd = 1f / def.attackRate;
             if (def.rangedRange > 0f) {
-                w.spawnAcid(this, tx, tz);
+                w.spawnAcid(this, tx, 1.0f, tz);   // gövde/yapı orta yüksekliği
             } else if (targetingPlayer) {
                 w.player.hurt(damage, w);
                 w.particles.blood(w.player.x, 1.0f, w.player.z,
@@ -282,13 +293,22 @@ public class Zombie {
             Structure blocker = w.grid.at(FlowField.cellX(best), FlowField.cellZ(best));
             if (blocker != null && blocker.blocks()) {
                 float d = MathX.dist(x, z, blocker.x, blocker.z);
-                if (d < Balance.CELL * 1.25f + radius()) {
+                if (d < blocker.footprintRadius() + radius() + 1.3f) {
                     targetStruct = blocker;
+                    rangedLocked = false;
                     state = ST_ATTACK;
                     return;
                 }
             }
         } else {
+            // Daha iyi komşu yok: ya reaktörün dibindeyiz ya da yol kapalı.
+            Structure near = w.blockerNear(x, z);
+            if (near != null) {
+                targetStruct = near;
+                rangedLocked = false;
+                state = ST_ATTACK;
+                return;
+            }
             dirX = -x;
             dirZ = -z;
         }
@@ -307,7 +327,7 @@ public class Zombie {
             }
         }
 
-        float sp = speed * slowFactor;
+        float sp = speed * slowFactor * (w.waves.rage ? 1.55f : 1f);
         float vx = dirX * sp + pushX + knockX;
         float vz = dirZ * sp + pushZ + knockZ;
         pushX = 0f;
@@ -334,9 +354,13 @@ public class Zombie {
         int gx = BuildGrid.worldToCell(nx), gz = BuildGrid.worldToCell(nz);
         Structure s = w.grid.at(gx, gz);
         if (s == null || !s.blocks()) return false;
-        // hücre merkezine olan mesafe yarıçapla çakışıyorsa engelle
+        // Aynı yapının içinde sıkıştıysak dışarı çıkabilmeliyiz.
+        if (w.grid.at(BuildGrid.worldToCell(x), BuildGrid.worldToCell(z)) == s) return false;
+        // Çok hücreli yapılarda (reaktör) yapının merkezi değil, hücrenin
+        // merkezi esas alınmalı; yoksa zombiler yapının üstüne yürüyebiliyor.
         float half = Balance.CELL * 0.5f;
-        float dx = Math.abs(nx - s.x), dz = Math.abs(nz - s.z);
-        return dx < half + radius() * 0.65f && dz < half + radius() * 0.65f;
+        float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
+        return Math.abs(nx - cx) < half + radius() * 0.65f
+                && Math.abs(nz - cz) < half + radius() * 0.65f;
     }
 }

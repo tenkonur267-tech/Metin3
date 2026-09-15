@@ -18,6 +18,8 @@ public class Projectile {
     public float size = 0.22f;
     public float trailTimer;
     public Structure owner;
+    /** Asit bu yüksekliğin altına inerken patlar (hedefin gövde yüksekliği). */
+    public float burstY = 1.0f;
 
     public void initRocket(float x, float y, float z, float dx, float dz, float damage, float splash) {
         set(ROCKET, x, y, z, dx * 34f, 0f, dz * 34f, damage, splash, 2.6f, 0xD84315, 0.26f);
@@ -71,6 +73,10 @@ public class Projectile {
 
         if (y <= 0.08f) {
             y = 0.08f;
+            explode(w);
+            return;
+        }
+        if (kind == ACID && vy < 0f && y <= burstY) {
             explode(w);
             return;
         }

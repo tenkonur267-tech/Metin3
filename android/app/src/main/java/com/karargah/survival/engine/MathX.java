@@ -10,6 +10,11 @@ public final class MathX {
 
     private static final Random RND = new Random();
 
+    /** Testlerin yinelenebilir olması için rastgeleliği sabitler. */
+    public static void setSeed(long seed) {
+        RND.setSeed(seed);
+    }
+
     private MathX() {}
 
     public static float clamp(float v, float lo, float hi) {

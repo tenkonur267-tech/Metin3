@@ -421,16 +421,19 @@ public class GameWorld {
         projectiles.add(p);
     }
 
-    public void spawnAcid(Zombie from, float tx, float tz) {
+    /** Tüküren zombinin balistik asidi: hedefin yüksekliğine inecek şekilde atılır. */
+    public void spawnAcid(Zombie from, float tx, float ty, float tz) {
         Projectile p = obtainProjectile();
         float dx = tx - from.x, dz = tz - from.z;
         float d = MathX.len(dx, dz);
         if (d < 0.01f) d = 0.01f;
         float speed = 17f;
         float t = d / speed;
-        float vy = (0.9f + 0.5f * 13f * t * t) / Math.max(0.15f, t);
-        p.initAcid(from.x, from.centerY() + 0.4f, from.z, dx / d, vy / speed, dz / d,
-                speed, from.damage);
+        float startY = from.centerY() + 0.4f;
+        // düşey hız: dy = vy*t - 0.5*g*t^2  =>  vy = (dy + 0.5*g*t^2) / t
+        float vy = ((ty - startY) + 0.5f * 13f * t * t) / Math.max(0.12f, t);
+        p.initAcid(from.x, startY, from.z, dx / d, vy / speed, dz / d, speed, from.damage);
+        p.burstY = ty;
         projectiles.add(p);
         audio.playSpit();
     }
@@ -455,8 +458,12 @@ public class GameWorld {
         if (player.alive && MathX.dist(x, z, player.x, player.z) < radius) {
             player.hurt(damage, this);
         }
-        Structure s = grid.atWorld(x, z);
-        if (s != null && s.alive && s != core) {
+        // Çevredeki bütün yapılara hasar ver (tek hücreye bakmak isabetsiz kalıyordu).
+        for (int i = structures.size() - 1; i >= 0; i--) {
+            Structure s = structures.get(i);
+            if (!s.alive) continue;
+            float reach = radius + (s == core ? 4f : Balance.CELL * 0.6f);
+            if (MathX.dist(x, z, s.x, s.z) > reach) continue;
             s.damage(damage * 0.8f);
             if (!s.alive) onStructureDestroyed(s);
         }
@@ -471,7 +478,7 @@ public class GameWorld {
         particles.explosion(boss.x, 0.3f, boss.z, 3.4f);
         particles.dust(boss.x, 0.1f, boss.z, 26);
         audio.playExplosion();
-        float radius = 6.5f;
+        float radius = 5.5f;
         if (player.alive && MathX.dist(boss.x, boss.z, player.x, player.z) < radius) {
             player.hurt(boss.damage * 1.4f, this);
         }
@@ -479,7 +486,7 @@ public class GameWorld {
             Structure s = structures.get(i);
             if (!s.alive) continue;
             if (MathX.dist(boss.x, boss.z, s.x, s.z) < radius) {
-                s.damage(boss.damage * 2.2f);
+                s.damage(boss.damage * 1.8f);
                 if (!s.alive) onStructureDestroyed(s);
             }
         }
@@ -526,7 +533,7 @@ public class GameWorld {
 
     private void updateCore(Structure s, float dt) {
         // Reaktör yavaşça kendini onarır (hazırlık aşamasında daha hızlı).
-        float rate = waves.isPrepare() ? 26f : 4f;
+        float rate = waves.isPrepare() ? 30f : 7f;
         s.repair(rate * dt);
         if (MathX.chance(dt * 6f)) {
             particles.spawn(s.x + MathX.rnd(-1.4f, 1.4f), MathX.rnd(1.2f, 3.6f),
@@ -779,6 +786,27 @@ public class GameWorld {
                     0f, MathX.rnd(0.3f, 0.9f), 0f, 0xFDD835, 0.5f, 0.08f, 0.01f, 0.6f, 0.4f, 1f,
                     Particles.BLEND_ADD);
         }
+    }
+
+    /** Verilen noktanın etrafındaki (3x3 hücre) en yakın engelleyici yapı. */
+    public Structure blockerNear(float x, float z) {
+        int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
+        Structure best = null;
+        float bestD = Float.MAX_VALUE;
+        for (int dz = -1; dz <= 1; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                Structure s = grid.at(gx + dx, gz + dz);
+                if (s == null || !s.blocks()) continue;
+                float cx = BuildGrid.cellToWorld(gx + dx);
+                float cz = BuildGrid.cellToWorld(gz + dz);
+                float d = MathX.dist2(x, z, cx, cz);
+                if (d < bestD) {
+                    bestD = d;
+                    best = s;
+                }
+            }
+        }
+        return best;
     }
 
     public Structure nearestStructure(float x, float z, float range) {

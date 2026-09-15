@@ -17,6 +17,9 @@ public class WaveManager {
 
     public int totalToSpawn;
     public int spawnedCount;
+    /** Dalga aşırı uzarsa kalan zombiler hızlanıp doğrudan reaktöre yürür. */
+    public boolean rage;
+    private float waveElapsed;
     private float spawnTimer;
     private final ArrayList<Integer> queue = new ArrayList<>();
     private int burst = 3;
@@ -42,6 +45,8 @@ public class WaveManager {
         queue.clear();
         spawnedCount = 0;
         totalToSpawn = 0;
+        rage = false;
+        waveElapsed = 0f;
         activeSpawnPoints = 3;
     }
 
@@ -67,7 +72,14 @@ public class WaveManager {
                 if (timer <= 0f) startWave(w);
                 break;
             case PHASE_WAVE:
+                waveElapsed += dt;
                 updateSpawning(w, dt);
+                boolean dragging = waveElapsed > 55f
+                        || (w.zombies.size() <= 3 && waveElapsed > 26f);
+                if (!rage && queue.isEmpty() && dragging && !w.zombies.isEmpty()) {
+                    rage = true;
+                    w.big("Kalan zombiler çıldırdı — doğrudan reaktöre geliyorlar!", 3.2f);
+                }
                 if (queue.isEmpty() && w.zombies.isEmpty()) {
                     finishWave(w);
                 }
@@ -92,6 +104,8 @@ public class WaveManager {
         phaseTime = 0f;
         activeSpawnPoints = MathX.clampI(2 + (wave + 2) / 3, 3, MAX_SPAWN_POINTS);
         buildQueue(wave);
+        rage = false;
+        waveElapsed = 0f;
         totalToSpawn = queue.size();
         spawnedCount = 0;
         spawnTimer = 1.2f;

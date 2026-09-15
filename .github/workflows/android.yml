@@ -39,6 +39,10 @@ jobs:
       - name: SDK lisanslarını kabul et
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
+      - name: Birim testleri (oyun simülasyonu)
+        working-directory: android
+        run: ./gradlew --no-daemon testDebugUnitTest
+
       - name: Debug APK derle
         working-directory: android
         run: ./gradlew --no-daemon assembleDebug
@@ -60,6 +64,14 @@ jobs:
             unset KEYSTORE_FILE
           fi
           ./gradlew --no-daemon assembleRelease
+
+      - name: Test raporlarını yükle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-raporu
+          path: android/app/build/reports/tests/
+          if-no-files-found: ignore
 
       - name: APK'ları yükle
         uses: actions/upload-artifact@v4

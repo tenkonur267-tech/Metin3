@@ -267,11 +267,14 @@ public class Player {
     }
 
     private boolean blocked(GameWorld w, float nx, float nz) {
-        Structure s = w.grid.atWorld(nx, nz);
+        int gx = BuildGrid.worldToCell(nx), gz = BuildGrid.worldToCell(nz);
+        Structure s = w.grid.at(gx, gz);
         if (s == null || !s.blocks()) return false;
+        if (w.grid.atWorld(x, z) == s) return false;   // içine sıkıştıysak çıkabil
         float half = Balance.CELL * 0.5f;
-        return Math.abs(nx - s.x) < half + Balance.PLAYER_RADIUS * 0.6f
-                && Math.abs(nz - s.z) < half + Balance.PLAYER_RADIUS * 0.6f;
+        float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
+        return Math.abs(nx - cx) < half + Balance.PLAYER_RADIUS * 0.6f
+                && Math.abs(nz - cz) < half + Balance.PLAYER_RADIUS * 0.6f;
     }
 
     public void dash() {

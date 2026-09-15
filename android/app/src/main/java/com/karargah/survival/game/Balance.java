@@ -107,7 +107,7 @@ public final class Balance {
     public static final StructDef[] STRUCTS = new StructDef[]{
             new StructDef(S_CORE, KIND_CORE, "Reaktör", "◉",
                     "Üssünün kalbi. Düşerse her şey biter.",
-                    0x4FC3F7, 0, 0, 3000f, 0.25f, true, 5,
+                    0x4FC3F7, 0, 0, 4200f, 0.25f, true, 5,
                     0, 0, 0, 0, 8f, 0),
             new StructDef(S_WALL, KIND_WALL, "Duvar", "▮",
                     "Zombileri yavaşlatır, yolu kapatır. Ucuz ve vazgeçilmez.",
@@ -273,7 +273,7 @@ public final class Balance {
             new ZombieDef(1, "Koşucu",   48f, 4.20f,  8f, 1.5f, 0.7f, 0.34f, 1.65f, 0x9CB07A, 0x6B3F3F, 16, 8, 0f, 2),
             new ZombieDef(2, "Kaba",    460f, 1.35f, 34f, 0.55f, 2.6f, 0.78f, 2.55f, 0x6E8A5E, 0x38414A, 55, 34, 0f, 6),
             new ZombieDef(3, "Tüküren", 110f, 1.60f, 16f, 0.75f, 1.0f, 0.42f, 1.80f, 0x8FA35C, 0x5C4A2E, 28, 16, 12f, 4),
-            new ZombieDef(4, "Mutant Dev", 3200f, 1.55f, 60f, 0.6f, 4.0f, 1.35f, 4.2f, 0x86603F, 0x2F3B2A, 420, 260, 0f, 30),
+            new ZombieDef(4, "Mutant Dev", 2600f, 1.55f, 42f, 0.6f, 2.4f, 1.35f, 4.2f, 0x86603F, 0x2F3B2A, 420, 260, 0f, 30),
             new ZombieDef(5, "Sürüngen", 38f, 2.70f,  7f, 1.4f, 0.5f, 0.34f, 0.95f, 0x89A06B, 0x53412F, 10, 5, 0f, 1)
     };
 
@@ -283,7 +283,7 @@ public final class Balance {
 
     /** Dalga numarasına göre zombi güç çarpanı. */
     public static float waveHpScale(int wave) {
-        return 1f + 0.17f * (wave - 1) + 0.013f * (float) Math.pow(wave, 1.85);
+        return 1f + 0.15f * (wave - 1) + 0.009f * (float) Math.pow(wave, 1.85);
     }
 
     public static float waveDamageScale(int wave) {

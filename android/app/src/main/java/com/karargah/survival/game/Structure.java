@@ -49,6 +49,13 @@ public class Structure {
         return maxHp <= 0 ? 0f : MathX.clamp(hp / maxHp, 0f, 1f);
     }
 
+    /** Yapının kapladığı alanın yarıçapı (reaktör 4x4 hücre kaplar). */
+    public float footprintRadius() {
+        return type == Balance.S_CORE
+                ? Balance.CELL * Balance.CORE_CELLS * 0.5f
+                : Balance.CELL * 0.5f;
+    }
+
     public boolean isTurret() {
         return def().kind == Balance.KIND_TURRET;
     }
