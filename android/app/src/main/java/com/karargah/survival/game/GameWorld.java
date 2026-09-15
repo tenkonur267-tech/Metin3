@@ -110,7 +110,10 @@ public class GameWorld {
         camera.targetZ = player.z;
         camera.snapToTarget();
         flow.compute(grid);
-        message("Reaktörü koru. İlk dalga yaklaşıyor.", 5f);
+        input.buildMode = true;   // oyun inşa moduyla başlasın: mekanik kendini anlatır
+        input.buildType = Balance.S_WALL;
+        message("Alttan yapı seç, zemine dokunarak kur. Hazır olunca DALGAYI BAŞLAT.", 8f);
+        big("REAKTÖRÜ KORU", 3f);
     }
 
     /** Kayıt yüklenirken çekirdeği yeniden kurar. */
