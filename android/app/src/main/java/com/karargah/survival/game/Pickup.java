@@ -18,6 +18,8 @@ public class Pickup {
     public boolean resting;
     /** 0 = yerde, 1 = toplayıcıya doğru çekiliyor. */
     public float magnet;
+    /** Bu yığına giden yoldaş (başkası aynı yığına koşmasın). */
+    public Npc claimedBy;
 
     public void init(int kind, int amount, float x, float z) {
         this.kind = kind;
@@ -35,6 +37,7 @@ public class Pickup {
         this.alive = true;
         this.resting = false;
         this.magnet = 0f;
+        this.claimedBy = null;
         this.bob = MathX.rnd(0f, MathX.TAU);
     }
 

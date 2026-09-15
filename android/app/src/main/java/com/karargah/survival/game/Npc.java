@@ -66,6 +66,12 @@ public class Npc {
     /** Serbest duruşta seçtiği son kip (GameWorld.AUTO_*). */
     public int autoMode = -1;
     public float autoSayCd;
+    /** Serbest duruşta hedef noktayı sabit tutma sayacı. */
+    public float autoRepathTimer;
+    private float autoDestX, autoDestZ, autoArrive = 1.6f;
+    /** Zombiden uzaklaşma (kite) durumu — histerezisli. */
+    private boolean kiting;
+    private boolean firingStand;
 
     // yol takibi
     private final int[] path = new int[160];
@@ -163,6 +169,15 @@ public class Npc {
 
     public float radius() {
         return 0.42f;
+    }
+
+    /** Zombilerle arasında korumaya çalıştığı mesafe. */
+    public float comfortDistance() {
+        switch (role) {
+            case Balance.NPC_GUARD: return 5f;       // hattı tutar, biraz yaklaşır
+            case Balance.NPC_SCAVENGER: return 7f;
+            default: return 7.5f;                    // mühendis/sağlıkçı uzak durur
+        }
     }
 
     /** Görev için iş gücü (saniyede). */
@@ -275,10 +290,19 @@ public class Npc {
                     arrive = 2.4f;
                     break;
                 case Balance.STANCE_AUTO: {
-                    float[] st = w.autoStationFor(this);
-                    destX = st[0];
-                    destZ = st[1];
-                    arrive = st[2];
+                    // Hedef her karede yeniden hesaplanırsa yoldaş bir ileri bir
+                    // geri gider; kararı kısa aralıklarla tazeleyip sabit tutuyoruz.
+                    autoRepathTimer -= dt;
+                    if (autoRepathTimer <= 0f) {
+                        autoRepathTimer = 1.4f;
+                        float[] st = w.autoStationFor(this);
+                        autoDestX = st[0];
+                        autoDestZ = st[1];
+                        autoArrive = st[2];
+                    }
+                    destX = autoDestX;
+                    destZ = autoDestZ;
+                    arrive = autoArrive;
                     break;
                 }
                 default: {
@@ -291,12 +315,57 @@ public class Npc {
             }
         }
 
-        // Dövüş: yakın tehditte durup ateş eder. İş yaparken yalnızca gerçekten
-        // yakın (5 birim) düşman için durur; yoksa işine yürürken ateş eder.
-        if (!withdrawing && target != null && hasDuty(Balance.DUTY_FIGHT)) {
+        // --- mesafe koruma ---
+        // Zombi rahat mesafesinden içeri girerse yoldaş geri çekilerek ateş
+        // eder; histerezis sayesinde bir ileri bir geri titremez.
+        float comfort = comfortDistance();
+        Zombie threat = w.nearestZombie(x, z, comfort * 1.9f);
+        float threatD = threat == null ? Float.MAX_VALUE
+                : MathX.dist(x, z, threat.x, threat.z);
+        if (threat != null && threatD < comfort) {
+            kiting = true;
+        } else if (threat == null || threatD > comfort * 1.5f) {
+            kiting = false;
+        }
+
+        if (kiting && threat != null && !withdrawing) {
+            float ax = x - threat.x, az = z - threat.z;
+            float l = MathX.len(ax, az);
+            if (l < 0.01f) {
+                ax = 1f;
+                az = 0f;
+                l = 1f;
+            }
+            // Tehditten uzaklaş, mümkünse üs merkezine doğru
+            float toBaseX = -x, toBaseZ = -z;
+            float bl = MathX.len(toBaseX, toBaseZ);
+            if (bl > 0.01f) {
+                ax = ax / l * 0.75f + toBaseX / bl * 0.25f;
+                az = az / l * 0.75f + toBaseZ / bl * 0.25f;
+                l = MathX.len(ax, az);
+                if (l < 0.01f) l = 1f;
+            } else {
+                ax /= l;
+                az /= l;
+                l = 1f;
+            }
+            destX = x + ax / l * (comfort - threatD + 2.5f);
+            destZ = z + az / l * (comfort - threatD + 2.5f);
+            arrive = 0.25f;
+            holdStill = false;
+            if (target == null) target = threat;
+        } else if (!withdrawing && target != null && hasDuty(Balance.DUTY_FIGHT)) {
+            // Ateş etmek için durma kararı da histerezisli
             float td = MathX.dist(x, z, target.x, target.z);
-            float stopRange = task == TASK_NONE ? def().range * 0.85f : 5f;
-            if (td < stopRange) holdStill = true;
+            float stopRange = task == TASK_NONE ? def().range * 0.85f : 5.5f;
+            if (firingStand) {
+                firingStand = td < stopRange * 1.3f;
+            } else {
+                firingStand = td < stopRange;
+            }
+            holdStill = firingStand;
+        } else {
+            firingStand = false;
         }
 
         if (!holdStill) {
@@ -476,7 +545,8 @@ public class Npc {
         }
         if (hasDuty(Balance.DUTY_GATHER)) {
             float searchRange = prepare ? Math.max(38f, range * 2.5f) : 14f;
-            Pickup p = w.nearestPickup(x, z, searchRange);
+            // Zombi dibindeki yığına gitmez; başkasının gittiği yığını da almaz.
+            Pickup p = w.pickupFor(this, searchRange, comfortDistance() * 0.9f);
             if (p != null) {
                 float score = (52f + Math.min(30f, w.pickups.size() * 2f)
                         - MathX.dist(x, z, p.x, p.z) * 0.35f)
@@ -492,11 +562,22 @@ public class Npc {
             }
         }
         if (best <= 0f) task = TASK_NONE;
+        if (task != TASK_GATHER && claimed != null) {
+            if (claimed.claimedBy == this) claimed.claimedBy = null;
+            claimed = null;
+        }
+        if (task == TASK_GATHER && lootTarget != null && claimed != lootTarget) {
+            if (claimed != null && claimed.claimedBy == this) claimed.claimedBy = null;
+            claimed = lootTarget;
+            claimed.claimedBy = this;
+        }
         if (task != previous) {
             taskElapsed = 0f;
             taskLock = task == TASK_NONE ? 0f : 4.5f;
         }
     }
+
+    private Pickup claimed;
 
     private float healX, healZ;
 
@@ -511,7 +592,16 @@ public class Npc {
                 }
                 break;
             case TASK_GATHER:
-                if (lootTarget == null || !lootTarget.alive) task = TASK_NONE;
+                if (lootTarget == null || !lootTarget.alive) {
+                    task = TASK_NONE;
+                } else if (w.zombieNear(lootTarget.x, lootTarget.z, comfortDistance() * 0.8f)) {
+                    task = TASK_NONE;      // zombi dibine düştü, vazgeç
+                    if (claimed == lootTarget) {
+                        if (claimed.claimedBy == this) claimed.claimedBy = null;
+                        claimed = null;
+                    }
+                    lootTarget = null;
+                }
                 break;
             default:
                 break;
@@ -605,6 +695,10 @@ public class Npc {
             }
             case TASK_GATHER: {
                 collected += lootTarget.amount;
+                if (claimed == lootTarget) {
+                    if (claimed.claimedBy == this) claimed.claimedBy = null;
+                    claimed = null;
+                }
                 w.collectPickup(lootTarget, false);
                 lootTarget = null;
                 task = TASK_NONE;
@@ -702,7 +796,7 @@ public class Npc {
         dirX /= l;
         dirZ /= l;
 
-        float sp = def().speed * (retreating ? 1.15f : 1f);
+        float sp = def().speed * (retreating ? 1.15f : kiting ? 1.12f : 1f);
         float nx = x + dirX * sp * dt;
         float nz = z + dirZ * sp * dt;
         boolean movedX = false, movedZ = false;

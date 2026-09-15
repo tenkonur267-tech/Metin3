@@ -865,10 +865,19 @@ public class GameWorld {
                 }
             }
             if (inside != null) {
+                // Zombinin üstüne değil, kendi tarafından rahat mesafeye dizil.
                 mode = AUTO_BREACH;
-                tx = inside.x;
-                tz = inside.z;
-                arrive = Math.max(2f, n.def().range * 0.6f);
+                float stand = Math.max(n.comfortDistance(), 3f);
+                float bx = n.x - inside.x, bz = n.z - inside.z;
+                float bl = MathX.len(bx, bz);
+                if (bl < 0.01f) {
+                    bx = -inside.x;
+                    bz = -inside.z;
+                    bl = Math.max(0.01f, MathX.len(bx, bz));
+                }
+                tx = inside.x + bx / bl * stand;
+                tz = inside.z + bz / bl * stand;
+                arrive = 1.5f;
             } else if (player.alive && player.hp < player.maxHp * 0.45f
                     && bestZombieFor(player.x, player.z, 11f) != null) {
                 mode = AUTO_PLAYER;
@@ -915,6 +924,7 @@ public class GameWorld {
 
         if (mode != n.autoMode) {
             n.autoMode = mode;
+            n.autoRepathTimer = 0f;
             if (n.autoSayCd <= 0f) {
                 n.autoSayCd = 9f;
                 n.say(AUTO_SAY[mode], 3f);
@@ -942,6 +952,50 @@ public class GameWorld {
             if (score < bestScore) {
                 bestScore = score;
                 best = zz;
+            }
+        }
+        return best;
+    }
+
+    /** Menzildeki en yakın canlı zombi (durumu ne olursa olsun). */
+    public Zombie nearestZombie(float x, float z, float range) {
+        Zombie best = null;
+        float bestD = range * range;
+        for (int i = 0; i < zombies.size(); i++) {
+            Zombie zz = zombies.get(i);
+            if (!zz.alive || zz.state == Zombie.ST_SPAWN) continue;
+            float d = MathX.dist2(x, z, zz.x, zz.z);
+            if (d < bestD) {
+                bestD = d;
+                best = zz;
+            }
+        }
+        return best;
+    }
+
+    public boolean zombieNear(float x, float z, float range) {
+        return nearestZombie(x, z, range) != null;
+    }
+
+    /**
+     * Yoldaş için toplanabilir en uygun ganimet: zombi dibindekiler ve başka
+     * bir yoldaşın gittiği yığınlar elenir.
+     */
+    public Pickup pickupFor(Npc n, float range, float dangerRadius) {
+        Pickup best = null;
+        float bestD = range * range;
+        for (int i = 0; i < pickups.size(); i++) {
+            Pickup p = pickups.get(i);
+            if (!p.grabbable()) continue;
+            if (p.claimedBy != null && p.claimedBy != n
+                    && p.claimedBy.alive && !p.claimedBy.downed) {
+                continue;
+            }
+            if (dangerRadius > 0f && zombieNear(p.x, p.z, dangerRadius)) continue;
+            float d = MathX.dist2(n.x, n.z, p.x, p.z);
+            if (d < bestD) {
+                bestD = d;
+                best = p;
             }
         }
         return best;

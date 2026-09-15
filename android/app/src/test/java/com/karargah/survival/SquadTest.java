@@ -587,4 +587,158 @@ public class SquadTest {
                 PathFinder.passable(w.grid, BuildGrid.worldToCell(n.x),
                         BuildGrid.worldToCell(n.z)));
     }
+
+    @Test
+    public void yoldasZombiyleArasindaMesafeKorur() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_SCAVENGER);
+        n.selfImprove = false;
+        n.x = 10f;
+        n.z = 0f;
+        float comfort = n.comfortDistance();
+        // Zombiyi tam dibine bırak: yoldaş geri çekilip mesafeyi açmalı.
+        w.spawnZombie(0, n.x + 1.2f, n.z, false);
+        float hp0 = n.hp;
+
+        float minD = Float.MAX_VALUE;
+        int tooClose = 0, samples = 0;
+        for (int i = 0; i < 12 * 60; i++) {
+            w.update(1f / 60f);
+            if (!n.alive || n.downed) break;
+            com.karargah.survival.game.Zombie zb = w.nearestZombie(n.x, n.z, 80f);
+            if (zb == null) break;
+            float d = MathX.dist(n.x, n.z, zb.x, zb.z);
+            minD = Math.min(minD, d);
+            samples++;
+            if (i > 120 && d < comfort * 0.6f) tooClose++;
+        }
+        assertTrue("dibinden çıkmalı (en yakın " + minD + ")", samples == 0 || tooClose * 4 < samples);
+        assertTrue("zombinin dibinde kalıp can eritmemeli", n.hp > hp0 * 0.55f);
+    }
+
+    @Test
+    public void zombiDibindekiGanimeteGitmez() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_SCAVENGER);
+        n.selfImprove = false;
+        n.x = 4f;
+        n.z = 0f;
+        // Tek ganimet yığını, üstünde de bir zombi.
+        w.pickups.clear();
+        w.dropLoot(18f, 0f, 30, 0, 1);
+        assertEquals(1, w.pickups.size());
+        Pickup p = w.pickups.get(0);
+        w.spawnZombie(0, p.x, p.z + 0.4f, false);
+
+        // Zombi yığının üstünde durduğu sürece yaklaşmamalı.
+        for (int i = 0; i < 4 * 60; i++) {
+            com.karargah.survival.game.Zombie zb = w.zombies.get(0);
+            zb.x = p.x;
+            zb.z = p.z + 0.4f;
+            w.update(1f / 60f);
+            assertTrue("zombi dibindeki yığını hedeflememeli", n.lootTarget != p);
+        }
+        assertTrue("yığın hâlâ yerde durmalı", p.alive);
+
+        // Tehdit çekilince aynı yığını rahatça toplamalı.
+        w.zombies.get(0).alive = false;
+        run(w, 14f);
+        assertTrue("tehdit gidince toplamalı", !p.alive);
+    }
+
+    @Test
+    public void ikiYoldasAyniYiginiKapismaz() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc a = hire(w, in, Balance.NPC_SCAVENGER);
+        while (w.npcCapacity() < 2) {
+            w.selected = w.barracks();
+            w.upgradeSelected();
+        }
+        w.selected = null;
+        Npc b = hire(w, in, Balance.NPC_SCAVENGER);
+        a.selfImprove = false;
+        b.selfImprove = false;
+        w.pickups.clear();
+        w.dropLoot(6f, 6f, 20, 0, 1);
+        w.dropLoot(-6f, 6f, 20, 0, 1);
+        assertEquals(2, w.pickups.size());
+        a.x = 0f; a.z = 4f;
+        b.x = 0f; b.z = 4.5f;
+
+        run(w, 1.5f);
+        Pickup pa = a.lootTarget, pb = b.lootTarget;
+        if (pa != null && pb != null) {
+            assertTrue("iki yoldaş aynı yığını hedeflememeli", pa != pb);
+        }
+        run(w, 12f);
+        assertEquals("iki yığın da toplanmalı", 0, w.pickups.size());
+    }
+
+    @Test
+    public void ganimetTopladiktanSonraSahiplenmeBirakilir() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_SCAVENGER);
+        n.selfImprove = false;
+        w.pickups.clear();
+        w.dropLoot(n.x + 3f, n.z, 15, 0, 1);
+        Pickup p = w.pickups.get(0);
+        run(w, 10f);
+        assertTrue("yığın toplanmalı", !p.alive);
+        assertTrue("sahiplenme bırakılmalı", p.claimedBy == null);
+    }
+
+    @Test
+    public void yoldasBirIleriBirGeriTitremez() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        n.selfImprove = false;
+        n.setStance(Balance.STANCE_AUTO, 0f, 0f);
+        w.update(0.016f);
+        in.push(new Cmd(Cmd.START_WAVE));
+        run(w, 3f);
+
+        float px = n.x, pz = n.z, pdx = 0f, pdz = 0f;
+        int flips = 0, steps = 0;
+        for (int i = 0; i < 60 * 60; i++) {
+            w.update(1f / 60f);
+            if (!n.alive) break;
+            if (i % 6 != 0 || n.downed) continue;
+            float dx = n.x - px, dz = n.z - pz;
+            if (MathX.len(dx, dz) > 0.05f && MathX.len(pdx, pdz) > 0.05f) {
+                steps++;
+                float dot = (dx * pdx + dz * pdz)
+                        / (MathX.len(dx, dz) * MathX.len(pdx, pdz));
+                if (dot < -0.7f) flips++;
+            }
+            pdx = dx; pdz = dz; px = n.x; pz = n.z;
+        }
+        assertTrue("sürekli yön değiştirip titrememeli (" + flips + "/" + steps + ")",
+                steps < 20 || flips * 4 < steps);
+    }
+
+    @Test
+    public void serbestDurusZombininUstuneBinmez() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        Npc n = hire(w, in, Balance.NPC_GUARD);
+        n.selfImprove = false;
+        n.setStance(Balance.STANCE_AUTO, 0f, 0f);
+        w.update(0.016f);
+        // Üs alanına sızmış tek zombi: yoldaş yanaşır ama dibine girmez.
+        w.spawnZombie(0, 6f, 6f, false);
+        float minD = Float.MAX_VALUE;
+        for (int i = 0; i < 10 * 60; i++) {
+            w.update(1f / 60f);
+            com.karargah.survival.game.Zombie zb = w.nearestZombie(n.x, n.z, 80f);
+            if (zb == null || !n.alive || n.downed) break;
+            if (i > 60) minD = Math.min(minD, MathX.dist(n.x, n.z, zb.x, zb.z));
+        }
+        assertTrue("zombinin üstüne binmemeli (en yakın " + minD + ")",
+                minD == Float.MAX_VALUE || minD > n.comfortDistance() * 0.55f);
+    }
 }

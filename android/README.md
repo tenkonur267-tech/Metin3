@@ -54,6 +54,12 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
   kendisi karar verir — reaktörün dibinde zombi varsa oraya koşar, üsse sızan
   olursa keser, sen zor durumdaysan yanına gelir, dalga sırasında zombilerin
   en yoğun geldiği cepheye geçer, hazırlıkta işinin başına döner.
+- **Mesafe koruma:** Her yoldaşın bir *rahat mesafesi* vardır (muhafız 5,
+  toplayıcı 7, diğerleri 7,5 birim). Zombi bu mesafenin içine girerse yoldaş
+  ateş etmeyi bırakmadan geri çekilir; mesafe 1,5 katına çıkana kadar da geri
+  dönmez, böylece bir ileri bir geri titremez. Ganimet seçerken zombi dibindeki
+  yığınları atlar, gittiği yığının dibine zombi düşerse vazgeçer; bir yığını
+  aynı anda yalnızca bir yoldaş sahiplenir, ikisi aynı hurdaya koşmaz.
 - **Konuşma baloncukları:** Ne yapacağını başının üstünde söyler ("Duvarı
   onarıyorum", "Ganimeti alıyorum", "Reaktörün başına geçiyorum!").
 - **Kendini geliştirme:** İzin açıkken hazırlık aşamasında kasada bolluk varsa
