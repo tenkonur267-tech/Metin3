@@ -19,9 +19,7 @@ public class BasePlanner {
     /** Oyuncuya bırakılan asgari hurda. */
     public static final int RESERVE = 130;
     /** Sur hattı kare bir çerçevedir: kenar uzaklığı (Chebyshev) bu bantta. */
-    private static final float RING_MIN = 8.4f;
-    private static final float RING_MAX = 10.6f;
-    private static final int MAX_QUEUE = 5;
+    private static final int MAX_QUEUE = 2;
     private static final int MAX_UPGRADES = 2;
 
     private float timer = 3f;
@@ -36,7 +34,7 @@ public class BasePlanner {
         if (!w.autoRebuild) return;
         timer -= dt;
         if (timer > 0f) return;
-        timer = 2.5f;
+        timer = 7.5f; // mimar her boş gördüğü yere aralıksız plan yağdırmasın
         // İnşaat kararları hazırlık aşamasında verilir; dalga sırasında ekip savaşır.
         if (!w.waves.isPrepare() || w.gameOver) return;
         if (!hasBuilder(w)) return;
@@ -83,7 +81,8 @@ public class BasePlanner {
             }
         }
 
-        // 2) Sur hattındaki delik (kapılar açık kalmalı)
+        // 2) Sur hattındaki gerçek delik. Alan dolmaya başlayınca hedef sur
+        // dışarı taşınır; reaktör çevresindeki eski dar halkayı tekrar kurmaz.
         if (affordable(w, Balance.S_WALL, budget)) {
             int gap = findWallGap(w);
             if (gap >= 0) {
@@ -192,17 +191,27 @@ public class BasePlanner {
     private int findWallGap(GameWorld w) {
         int best = -1;
         float bestScore = -1f;
-        int lo = cellLo(RING_MAX), hi = cellHi(RING_MAX);
+        float target = desiredRing(w);
+        float ringMin = target - 1.1f, ringMax = target + 1.1f;
+        int lo = cellLo(ringMax), hi = cellHi(ringMax);
         for (int gz = lo; gz <= hi; gz++) {
             for (int gx = lo; gx <= hi; gx++) {
                 float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
                 float ring = Math.max(Math.abs(cx), Math.abs(cz));
-                if (ring < RING_MIN || ring > RING_MAX) continue;
+                if (ring < ringMin || ring > ringMax) continue;
                 if (isGateCell(cx, cz)) continue;
                 if (w.grid.at(gx, gz) != null || w.planAt(gx, gz) != null) continue;
                 if (w.grid.canPlace(gx, gz) != BuildGrid.OK) continue;
                 // sur hattının ortasına yakın delikler önce kapatılır
-                float score = 10f - Math.abs(ring - 9.5f);
+                // Komşusu olmayan hücre yeni bir rastgele duvar hattı
+                // başlatmasın; yalnızca mevcut hattın gerçek deliğini kapat.
+                int neighbors = 0;
+                if (isWallOrPlan(w, gx - 1, gz)) neighbors++;
+                if (isWallOrPlan(w, gx + 1, gz)) neighbors++;
+                if (isWallOrPlan(w, gx, gz - 1)) neighbors++;
+                if (isWallOrPlan(w, gx, gz + 1)) neighbors++;
+                if (neighbors == 0) continue;
+                float score = neighbors * 10f - Math.abs(ring - target);
                 if (score > bestScore) {
                     bestScore = score;
                     best = gz * Balance.GRID + gx;
@@ -210,6 +219,25 @@ public class BasePlanner {
             }
         }
         return best;
+    }
+
+    private float desiredRing(GameWorld w) {
+        int occupied = 0;
+        for (int i = 0; i < w.structures.size(); i++) {
+            Structure s = w.structures.get(i);
+            if (s.alive && s.type != Balance.S_CORE && MathX.len(s.x, s.z) < 17f) occupied++;
+        }
+        // İç alan kalmadığında sur hedefi kademeli büyür; bir anda bütün
+        // haritayı duvar planıyla doldurmaz.
+        float expansion = occupied > 24 ? 8f : occupied > 16 ? 4f : 0f;
+        return Math.min(34f, 19f + expansion + Math.min(7f, (w.waves.wave / 5) * 2f));
+    }
+
+    private boolean isWallOrPlan(GameWorld w, int gx, int gz) {
+        Structure s = w.grid.at(gx, gz);
+        if (s != null && s.type == Balance.S_WALL) return true;
+        BuildPlan p = w.planAt(gx, gz);
+        return p != null && !p.isUpgrade() && p.type == Balance.S_WALL;
     }
 
     /** Kapı hücreleri: her kenarın ortasında iki hücrelik geçit açık kalır. */

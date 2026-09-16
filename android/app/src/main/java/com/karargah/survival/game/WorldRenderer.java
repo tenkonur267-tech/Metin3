@@ -63,7 +63,8 @@ public class WorldRenderer {
         r.beginFrame(w.camera);
         r.drawSky();
 
-        drawGround();
+        drawGround(w);
+        drawOpenWorld(w);
         drawDecor(w);
         drawPortals(w);
         drawStructures(w, buildMode);
@@ -122,12 +123,64 @@ public class WorldRenderer {
         r.skyHorB = MathX.lerp(0.74f, 0.10f, n);
     }
 
-    private void drawGround() {
+    private void drawGround(GameWorld w) {
+        // Büyük dünya tek dev mesh değildir; zemin oyuncuyla birlikte kayan
+        // 300x300 bir parça olarak çizilir. Koordinatlar yine gerçek dünya
+        // koordinatıdır ve 50 km sınıra kadar sürer.
+        float gx = (float) Math.floor(w.player.x / 20f) * 20f;
+        float gz = (float) Math.floor(w.player.z / 20f) * 20f;
+        M4.trs(model, gx, 0f, gz, 0f, 1f);
+        int biome = w.openWorld.biomeAt(w.player.x, w.player.z);
+        float cr = 1f, cg = 1f, cb = 1f;
+        if (biome == OpenWorld.FOREST) { cr = .68f; cg = .90f; cb = .66f; }
+        else if (biome == OpenWorld.DESERT) { cr = 1.22f; cg = 1.02f; cb = .62f; }
+        else if (biome == OpenWorld.SNOW) { cr = 1.34f; cg = 1.38f; cb = 1.45f; }
+        else if (biome == OpenWorld.SWAMP) { cr = .62f; cg = .78f; cb = .55f; }
+        r.draw(models.ground, model, cr, cg, cb, 1f);
         M4.setIdentity(model);
-        r.draw(models.ground, model, 1f, 1f, 1f, 1f);
         r.setDepthOffset(-1f, -2f);
         r.draw(models.basePlatform, model, 1f, 1f, 1f, 1f);
         r.setDepthOffset(0f, 0f);
+    }
+
+    /** Yakındaki şehirleri ve koordinattan üretilen açık dünya dekorunu çizer. */
+    private void drawOpenWorld(GameWorld w) {
+        final float chunk = 28f;
+        int pcx = (int) Math.floor(w.player.x / chunk);
+        int pcz = (int) Math.floor(w.player.z / chunk);
+        for (int dz = -4; dz <= 4; dz++) {
+            for (int dx = -4; dx <= 4; dx++) {
+                int cx = pcx + dx, cz = pcz + dz;
+                long h = (cx * 73856093L) ^ (cz * 19349663L) ^ 0x5f3759dfL;
+                float px = (cx + .18f + ((h >>> 8) & 1023) / 1600f) * chunk;
+                float pz = (cz + .18f + ((h >>> 20) & 1023) / 1600f) * chunk;
+                if (MathX.len(px, pz) < Balance.BUILD_RADIUS + 7f) continue;
+                int biome = w.openWorld.biomeAt(px, pz);
+                Mesh m = biome == OpenWorld.DESERT ? models.rock
+                        : biome == OpenWorld.SNOW ? models.deadTree
+                        : biome == OpenWorld.SWAMP ? models.deadTree
+                        : ((h & 3) == 0 ? models.rock : models.grassTuft);
+                float sc = .75f + ((h >>> 32) & 255) / 300f;
+                M4.trs(model, px, 0f, pz, (h & 6283) * .001f, sc);
+                r.draw(m, model, 1f, 1f, 1f, 1f);
+            }
+        }
+
+        // Şehirler uzaktan belleğe alınmaz; yakına gelince deterministik
+        // sokak blokları oluşur. Haritadaki koordinatları kalıcıdır.
+        for (int c = 0; c < OpenWorld.CITIES.length; c++) {
+            float ox = OpenWorld.CITIES[c][0], oz = OpenWorld.CITIES[c][1];
+            if (MathX.dist(w.player.x, w.player.z, ox, oz) > 180f) continue;
+            for (int z = -3; z <= 3; z++) {
+                for (int x = -3; x <= 3; x++) {
+                    if ((x == 0) || (z == 0) || ((x + z + c) & 3) == 0) continue;
+                    float bx = ox + x * 17f, bz = oz + z * 17f;
+                    float sy = 3.5f + Math.abs((x * 13 + z * 7 + c * 5) % 6);
+                    M4.trs(model, bx, sy, bz, 0f, 5.8f, sy, 5.8f);
+                    r.draw(models.crate, model, .72f, .75f, .76f, 1f);
+                }
+            }
+        }
     }
 
     private void drawDecor(GameWorld w) {

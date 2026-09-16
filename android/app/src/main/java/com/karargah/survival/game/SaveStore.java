@@ -59,6 +59,7 @@ public final class SaveStore {
             root.put("record", w.waveRecord);
             root.put("kills", w.totalKills);
             root.put("time", w.playTime);
+            root.put("dayTime", w.openWorld.timeOfDay);
             root.put("built", w.structuresBuilt);
             root.put("lost", w.structuresLost);
 
@@ -169,6 +170,7 @@ public final class SaveStore {
             w.waveRecord = root.optInt("record", 0);
             w.totalKills = root.optInt("kills", 0);
             w.playTime = (float) root.optDouble("time", 0);
+            w.openWorld.timeOfDay = (float) root.optDouble("dayTime", 0.30);
             w.structuresBuilt = root.optInt("built", 0);
             w.structuresLost = root.optInt("lost", 0);
 

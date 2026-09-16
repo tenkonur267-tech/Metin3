@@ -310,7 +310,7 @@ public class Zombie {
         int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
         float dirX, dirZ;
 
-        int best = w.flow.bestNeighbor(gx, gz);
+        int best = BuildGrid.inBounds(gx, gz) ? w.flow.bestNeighbor(gx, gz) : -1;
         if (best >= 0) {
             float bx = BuildGrid.cellToWorld(FlowField.cellX(best));
             float bz = BuildGrid.cellToWorld(FlowField.cellZ(best));
@@ -335,8 +335,15 @@ public class Zombie {
                 state = ST_ATTACK;
                 return;
             }
-            dirX = -x;
-            dirZ = -z;
+            // Açık dünyada üs ızgarasının dışındaki zombiler yakındaki
+            // oyuncuyu avlar; üs çevresindekiler reaktöre yürümeyi sürdürür.
+            if (!BuildGrid.inBounds(gx, gz)) {
+                dirX = w.player.x - x;
+                dirZ = w.player.z - z;
+            } else {
+                dirX = -x;
+                dirZ = -z;
+            }
         }
 
         float l = MathX.len(dirX, dirZ);

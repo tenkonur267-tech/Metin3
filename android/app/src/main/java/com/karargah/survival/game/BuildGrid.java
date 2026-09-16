@@ -9,11 +9,11 @@ public class BuildGrid {
     private final Structure[] cells = new Structure[N * N];
 
     public static int worldToCell(float w) {
-        return (int) Math.floor((w + Balance.WORLD_HALF) / Balance.CELL);
+        return (int) Math.floor((w + Balance.BUILD_GRID_HALF) / Balance.CELL);
     }
 
     public static float cellToWorld(int c) {
-        return c * Balance.CELL - Balance.WORLD_HALF + Balance.CELL * 0.5f;
+        return c * Balance.CELL - Balance.BUILD_GRID_HALF + Balance.CELL * 0.5f;
     }
 
     public static boolean inBounds(int gx, int gz) {
@@ -51,7 +51,7 @@ public class BuildGrid {
     /** Hücrenin merkezi inşa alanı içinde mi? */
     public static boolean inBuildArea(int gx, int gz) {
         float x = cellToWorld(gx), z = cellToWorld(gz);
-        return MathX.len(x, z) <= Balance.BUILD_RADIUS;
+        return MathX.len(x, z) <= Balance.BUILD_RADIUS_MAX;
     }
 
     /** Reaktörün kapladığı hücreler (merkezde CORE_CELLS x CORE_CELLS). */

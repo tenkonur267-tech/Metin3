@@ -272,6 +272,11 @@ public class HudView extends View {
             sub = "hazırlanıyor...";
         }
         ui.labelShadow(c, sub, cx, top + 44 * sc, 16 * sc, UiKit.COL_DIM, Paint.Align.CENTER);
+        int hour = Math.round(gw.openWorld.timeOfDay * 24f) % 24;
+        String region = gw.openWorld.regionName(gw.player.x, gw.player.z);
+        ui.labelShadow(c, region + " · " + (hour < 10 ? "0" : "") + hour + ":00",
+                cx, top + 70 * sc, 14 * sc,
+                gw.nightFactor > .55f ? 0xFF9FA8DA : 0xFFB8D7A8, Paint.Align.CENTER);
 
         // güç durumu
         if (gw.powerUse > 0.1f) {
@@ -539,14 +544,19 @@ public class HudView extends View {
         float size = 132 * sc;
         float l = 14 * sc, t = 84 * sc;
         float cx = l + size * 0.5f, cy = t + size * 0.5f;
-        float scale = (size * 0.5f) / Balance.WORLD_HALF;
+        // Açık dünyada mini harita oyuncu merkezli yerel radar olarak çalışır.
+        float radar = 85f;
+        float scale = (size * 0.5f) / radar;
 
         ui.rect(c, l, t, l + size, t + size, 10 * sc, 0xB00C120F);
         ui.border(c, l, t, l + size, t + size, 10 * sc, 0x44FFFFFF, 1.4f * sc);
 
         ui.stroke.setColor(0x334DD0E1);
         ui.stroke.setStrokeWidth(1.4f * sc);
-        c.drawCircle(cx, cy, Balance.BUILD_RADIUS * scale, ui.stroke);
+        if (MathX.dist(gw.player.x, gw.player.z, 0f, 0f) < radar + Balance.BUILD_RADIUS) {
+            c.drawCircle(cx - gw.player.x * scale, cy - gw.player.z * scale,
+                    Balance.BUILD_RADIUS_MAX * scale, ui.stroke);
+        }
 
         ui.fill.setStyle(Paint.Style.FILL);
         // yapılar
@@ -562,12 +572,14 @@ public class HudView extends View {
             ui.fill.setColor(core ? 0xFF4DD0E1
                     : (s.isTurret() ? 0xFF9CCC65 : 0x99C8C8B0));
             float r = core ? 4.5f * sc : 1.7f * sc;
-            c.drawCircle(cx + s.x * scale, cy + s.z * scale, r, ui.fill);
+            c.drawCircle(cx + (s.x - gw.player.x) * scale,
+                    cy + (s.z - gw.player.z) * scale, r, ui.fill);
         }
         // doğma kapıları
         for (int i = 0; i < gw.waves.activeSpawnPoints; i++) {
             ui.fill.setColor(0xFF8E2B2B);
-            c.drawCircle(cx + gw.waves.spawnX[i] * scale, cy + gw.waves.spawnZ[i] * scale,
+            c.drawCircle(cx + (gw.waves.spawnX[i] - gw.player.x) * scale,
+                    cy + (gw.waves.spawnZ[i] - gw.player.z) * scale,
                     3f * sc, ui.fill);
         }
         // zombiler
@@ -580,7 +592,8 @@ public class HudView extends View {
             }
             if (z == null || !z.alive) continue;
             ui.fill.setColor(z.isBoss() ? 0xFFFF5252 : (z.elite ? 0xFFCE93D8 : 0xFFE05C4B));
-            c.drawCircle(cx + z.x * scale, cy + z.z * scale, z.isBoss() ? 4f * sc : 2f * sc, ui.fill);
+            c.drawCircle(cx + (z.x - gw.player.x) * scale,
+                    cy + (z.z - gw.player.z) * scale, z.isBoss() ? 4f * sc : 2f * sc, ui.fill);
         }
         // yere düşen ganimet
         for (int i = 0; i < gw.pickups.size(); i++) {
@@ -592,7 +605,8 @@ public class HudView extends View {
             }
             if (p == null || !p.alive) continue;
             ui.fill.setColor(p.kind == Pickup.CORE ? 0xFF4DD0E1 : 0xFFFFD54F);
-            c.drawCircle(cx + p.x * scale, cy + p.z * scale, 1.6f * sc, ui.fill);
+            c.drawCircle(cx + (p.x - gw.player.x) * scale,
+                    cy + (p.z - gw.player.z) * scale, 1.6f * sc, ui.fill);
         }
         // yoldaşlar
         for (int i = 0; i < gw.npcs.size(); i++) {
@@ -604,18 +618,17 @@ public class HudView extends View {
             }
             if (n == null || !n.alive) continue;
             ui.fill.setColor(n.downed ? 0xFF8E3A31 : (0xFF000000 | Balance.npc(n.role).accent));
-            c.drawCircle(cx + n.x * scale, cy + n.z * scale, 2.6f * sc, ui.fill);
+            c.drawCircle(cx + (n.x - gw.player.x) * scale,
+                    cy + (n.z - gw.player.z) * scale, 2.6f * sc, ui.fill);
         }
 
         // oyuncu
         ui.fill.setColor(0xFFFFFFFF);
-        c.drawCircle(cx + gw.player.x * scale, cy + gw.player.z * scale, 3f * sc, ui.fill);
+        c.drawCircle(cx, cy, 3f * sc, ui.fill);
         ui.stroke.setColor(0xFFFFFFFF);
         ui.stroke.setStrokeWidth(1.6f * sc);
         float fx = (float) Math.sin(gw.player.aimYaw), fz = (float) Math.cos(gw.player.aimYaw);
-        c.drawLine(cx + gw.player.x * scale, cy + gw.player.z * scale,
-                cx + gw.player.x * scale + fx * 9 * sc,
-                cy + gw.player.z * scale + fz * 9 * sc, ui.stroke);
+        c.drawLine(cx, cy, cx + fx * 9 * sc, cy + fz * 9 * sc, ui.stroke);
     }
 
     /** Hasar alınca kenarlarda kırmızı parlama. */

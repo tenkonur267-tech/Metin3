@@ -17,6 +17,7 @@ public class GameWorld {
     public final BuildGrid grid = new BuildGrid();
     public final FlowField flow = new FlowField();
     public final WaveManager waves = new WaveManager();
+    public final OpenWorld openWorld = new OpenWorld();
     public final Camera camera = new Camera();
     public final Particles particles = new Particles(1600);
     public final Audio audio;
@@ -98,6 +99,7 @@ public class GameWorld {
         particles.clear();
         player.resetForNewGame();
         waves.reset();
+        openWorld.reset();
         gameOver = false;
         paused = false;
         started = false;
@@ -116,20 +118,22 @@ public class GameWorld {
         // hem oyuncu/yoldaşlar girip çıkabiliyor hem de zombiler kapılara
         // yönlendiği için kuleleri oraya dizmek işe yarıyor.
         int c = BuildGrid.N / 2;
-        for (int i = -4; i <= 4; i++) {
-            if (i != 0 && i != 1) {
-                placeFree(Balance.S_WALL, c + i, c - 5);
-                placeFree(Balance.S_WALL, c + i, c + 4);
+        // Geniş başlangıç avlusu: reaktör ile sur arasında hareket ve yeni
+        // yapılar için yaklaşık 18 birim boşluk bırakılır.
+        for (int i = -10; i <= 9; i++) {
+            if (i < -1 || i > 1) {
+                placeFree(Balance.S_WALL, c + i, c - 10);
+                placeFree(Balance.S_WALL, c + i, c + 9);
             }
         }
-        for (int i = -4; i <= 3; i++) {
-            if (i != -1 && i != 0) {
-                placeFree(Balance.S_WALL, c - 5, c + i);
-                placeFree(Balance.S_WALL, c + 4, c + i);
+        for (int i = -9; i <= 8; i++) {
+            if (i < -1 || i > 1) {
+                placeFree(Balance.S_WALL, c - 10, c + i);
+                placeFree(Balance.S_WALL, c + 9, c + i);
             }
         }
-        placeFree(Balance.S_MG, c - 3, c - 3);
-        placeFree(Balance.S_MG, c + 2, c + 2);
+        placeFree(Balance.S_MG, c - 7, c - 7);
+        placeFree(Balance.S_MG, c + 6, c + 6);
 
         player.x = 0f;
         player.z = 7f;
@@ -210,8 +214,10 @@ public class GameWorld {
         if (messageTimer > 0f) messageTimer -= dt;
         if (bigMessageTimer > 0f) bigMessageTimer -= dt;
 
-        float targetNight = waves.phase == WaveManager.PHASE_WAVE ? 1f : 0f;
-        nightFactor = MathX.damp(nightFactor, targetNight, 0.55f, dt);
+        openWorld.update(this, dt);
+        // Gece artık dalga düğmesine değil, kesintisiz dünya saatine bağlı.
+        float targetNight = openWorld.night();
+        nightFactor = MathX.damp(nightFactor, targetNight, 0.42f, dt);
 
         float inX = input.moveX;
         float inZ = input.moveZ;

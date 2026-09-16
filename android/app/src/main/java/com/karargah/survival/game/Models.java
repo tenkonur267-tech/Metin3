@@ -47,11 +47,11 @@ public class Models {
     private void buildGround() {
         MeshBuilder b = new MeshBuilder();
         int n = 60;
-        float cell = Balance.WORLD_HALF * 2f / n;
+        float cell = Balance.WORLD_RENDER_RADIUS * 2f / n;
         for (int gz = 0; gz < n; gz++) {
             for (int gx = 0; gx < n; gx++) {
-                float x0 = -Balance.WORLD_HALF + gx * cell;
-                float z0 = -Balance.WORLD_HALF + gz * cell;
+                float x0 = -Balance.WORLD_RENDER_RADIUS + gx * cell;
+                float z0 = -Balance.WORLD_RENDER_RADIUS + gz * cell;
                 float cx = x0 + cell * 0.5f, cz = z0 + cell * 0.5f;
                 float r = MathX.len(cx, cz);
                 float noise = MathX.smoothNoise(gx * 0.32f, gz * 0.32f);

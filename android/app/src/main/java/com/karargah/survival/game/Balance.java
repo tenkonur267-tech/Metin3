@@ -10,9 +10,15 @@ public final class Balance {
 
     // ---- dünya ----------------------------------------------------------
     public static final float CELL = 2f;
-    public static final int GRID = 60;                 // 60x60 hücre
-    public static final float WORLD_HALF = GRID * CELL * 0.5f;   // 60 birim
-    public static final float BUILD_RADIUS = 40f;      // inşaat yapılabilen alan
+    public static final int GRID = 60;                 // yerel üs ızgarası
+    public static final float BUILD_GRID_HALF = GRID * CELL * 0.5f;
+    /** Açık dünya: -50.000..+50.000 = 100.000 x 100.000 birim. */
+    public static final float WORLD_HALF = 50000f;
+    /** Başlangıç inşa yarıçapı; üs geliştikçe 54 birime kadar açılır. */
+    public static final float BUILD_RADIUS = 40f;
+    public static final float BUILD_RADIUS_MAX = 54f;
+    /** Kameranın çevresinde çizilen akışkan dünya parçası. */
+    public static final float WORLD_RENDER_RADIUS = 150f;
     public static final float SPAWN_RADIUS = 54f;
     public static final int CORE_CELLS = 4;            // çekirdek 4x4 hücre kaplar
 
