@@ -1,6 +1,7 @@
 package com.karargah.survival;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.karargah.survival.engine.Audio;
@@ -24,6 +25,10 @@ public class ControlsTest {
         audio.setEnabled(false);
         GameWorld w = new GameWorld(audio, in);
         w.paused = false;
+        w.spawnRoamers = false;      // testlerde yalnızca kurulan senaryo koşsun
+        w.player.wood = 20000;
+        w.player.stone = 20000;
+        w.player.fiber = 20000;
         in.buildMode = false;
         w.camera.setAspect(1600, 900);
         return w;
@@ -120,14 +125,14 @@ public class ControlsTest {
         InputState in = new InputState();
         GameWorld w = world(in);
         w.player.scrap = 5000;
-        w.waves.wave = 5;   // jeneratör açılmış olsun
+        w.dayCount = 5;   // jeneratör açılmış olsun
         assertEquals(0, in.buildRotation);
 
         in.push(new Cmd(Cmd.ROTATE));
         w.update(0.016f);
         assertEquals("seçim yokken yerleştirme yönü dönmeli", 1, in.buildRotation);
 
-        int gx = BuildGrid.N / 2 + 8, gz = BuildGrid.N / 2 + 8;
+        int gx = BuildGrid.N / 2 + 4, gz = BuildGrid.N / 2 + 4;
         in.push(new Cmd(Cmd.PLACE, Balance.S_GENERATOR, gx, gz));
         w.update(0.016f);
         Structure s = w.grid.at(gx, gz);
@@ -151,11 +156,13 @@ public class ControlsTest {
         GameWorld w = world(in);
         w.player.scrap = 50000;
         w.player.cores = 50;
-        int gx = BuildGrid.N / 2 + 6, gz = BuildGrid.N / 2 + 6;
+        // Sur hattı 13 birimde: boş avlu hücresine kur (6 -> 13 birim, dolu).
+        int gx = BuildGrid.N / 2 + 3, gz = BuildGrid.N / 2 + 3;
         in.push(new Cmd(Cmd.PLACE, Balance.S_MG, gx, gz));
         w.update(0.016f);
         Structure s = w.grid.at(gx, gz);
-        assertTrue(s != null);
+        assertNotNull(s);
+        assertEquals("boş hücreye kule kurulmalı", Balance.S_MG, s.type);
         float scale1 = s.levelScale();
         in.push(new Cmd(Cmd.SELECT, 0, gx, gz));
         for (int i = 0; i < 4; i++) {
@@ -165,9 +172,9 @@ public class ControlsTest {
         assertEquals(5, s.level);
         assertTrue("azami seviyede yapı daha iri olmalı", s.levelScale() > scale1 + 0.1f);
         // duvarlar hücreye sığmalı, büyümemeli
-        in.push(new Cmd(Cmd.PLACE, Balance.S_WALL, gx + 3, gz));
+        in.push(new Cmd(Cmd.PLACE, Balance.S_WALL, gx + 2, gz));
         w.update(0.016f);
-        Structure wall = w.grid.at(gx + 3, gz);
+        Structure wall = w.grid.at(gx + 2, gz);
         assertTrue(wall != null);
         assertEquals("duvarlar seviyeyle büyümemeli", 1f, wall.levelScale(), 1e-5f);
     }

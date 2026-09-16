@@ -8,6 +8,8 @@ public class Player {
     public float yaw = 0f;
     public float aimYaw = 0f;
     public float hp, maxHp;
+    /** Hayatta kalma ihtiyaçları: tokluk ve su (0..100). */
+    public float hunger = Balance.NEED_MAX, thirst = Balance.NEED_MAX;
     public boolean alive = true;
     public float reviveTimer;
     public int deaths;
@@ -36,8 +38,18 @@ public class Player {
     public int xp;
     public int skillPoints;
     public final int[] skills = new int[Balance.SKILL_COUNT];
-    public int scrap = 220;
+    public int scrap = 120;
     public int cores = 0;
+    /** Kesilen odun. */
+    public int wood = 60;
+    /** Kırılan taş. */
+    public int stone = 0;
+    /** Toplanan lif (sargı ve alet için). */
+    public int fiber = 0;
+    /** Balta seviyesi: odun kesme hızı. */
+    public int axeLevel = 1;
+    /** Kazma seviyesi: taş kırma hızı. */
+    public int pickLevel = 1;
     public int kills;
 
     public float regenCarry;
@@ -54,12 +66,19 @@ public class Player {
             reserve[i] = i == Balance.W_PISTOL ? 9999 : 0;
         }
         for (int i = 0; i < skills.length; i++) skills[i] = 0;
+        scrap = 120;
+        cores = 0;
+        wood = 60;
+        stone = 0;
+        fiber = 0;
+        axeLevel = 1;
+        pickLevel = 1;
+        hunger = Balance.NEED_MAX;
+        thirst = Balance.NEED_MAX;
         currentWeapon = Balance.W_PISTOL;
         level = 1;
         xp = 0;
         skillPoints = 0;
-        scrap = 220;
-        cores = 0;
         kills = 0;
         deaths = 0;
         maxHp = maxHp();
@@ -129,7 +148,36 @@ public class Player {
         return 0.7f * skills[Balance.SK_REGEN];
     }
 
+    /** Kaynak miktarını türüne göre okur. */
+    public int res(int kind) {
+        switch (kind) {
+            case Balance.R_WOOD: return wood;
+            case Balance.R_STONE: return stone;
+            case Balance.R_FIBER: return fiber;
+            default: return scrap;
+        }
+    }
+
+    /** Kaynak ekler ya da (negatif miktarla) düşer. */
+    public void addRes(int kind, int amount) {
+        switch (kind) {
+            case Balance.R_WOOD: wood = Math.max(0, wood + amount); break;
+            case Balance.R_STONE: stone = Math.max(0, stone + amount); break;
+            case Balance.R_FIBER: fiber = Math.max(0, fiber + amount); break;
+            default: scrap = Math.max(0, scrap + amount); break;
+        }
+    }
+
+    /** Toplama hızı çarpanı: balta odunu, kazma taşı hızlandırır. */
+    public float harvestSpeed(int res) {
+        int tool = res == Balance.R_STONE ? pickLevel : (res == Balance.R_WOOD ? axeLevel : 1);
+        return 1f + 0.45f * (tool - 1);
+    }
+
     public int buildCost(int base) {
+        // Sıfır maliyet sıfır kalmalı: yoksa hiç taş istemeyen bir yapı bile
+        // "1 taş" ister ve taşı olmayan oyuncu duvar bile öremez.
+        if (base <= 0) return 0;
         return Math.max(1, Math.round(base * (1f - buildDiscount())));
     }
 
@@ -218,6 +266,63 @@ public class Player {
 
     // ---- kare güncellemesi ---------------------------------------------
 
+    /** Açlık/susuzluk ne kadar yavaşlatıyor (1 = tam hız). */
+    public float needSpeedFactor() {
+        float worst = Math.min(hunger, thirst);
+        if (worst >= Balance.NEED_LOW) return 1f;
+        return 0.62f + 0.38f * (worst / Balance.NEED_LOW);
+    }
+
+    /** Aç ya da susuz mu (arayüzde uyarı için)? */
+    public boolean needsUrgent() {
+        return Math.min(hunger, thirst) < Balance.NEED_LOW;
+    }
+
+    /** Yemek yer: tokluğu artırır. */
+    public void eat(int amount) {
+        hunger = Math.min(Balance.NEED_MAX, hunger + amount);
+    }
+
+    /** Su içer. */
+    public void drink(int amount) {
+        thirst = Math.min(Balance.NEED_MAX, thirst + amount);
+    }
+
+    private float needHurtCd;
+
+    private void updateNeeds(GameWorld w, float dt) {
+        hunger = Math.max(0f, hunger - Balance.HUNGER_DRAIN * dt);
+        thirst = Math.max(0f, thirst - Balance.THIRST_DRAIN * dt);
+
+        float dps = 0f;
+        if (hunger <= 0f) dps += Balance.STARVE_DPS;
+        if (thirst <= 0f) dps += Balance.DEHYDRATE_DPS;
+        if (dps <= 0f) return;
+
+        needHurtCd -= dt;
+        if (needHurtCd <= 0f) {
+            needHurtCd = 6f;
+            w.message(thirst <= 0f ? "Susuzluktan ölüyorsun — şehirlerde su ara"
+                    : "Açlıktan ölüyorsun — şehirlerde yiyecek ara", 2.6f);
+        }
+        // Zırh açlığa yaramaz: hasar doğrudan uygulanır ama ölüm yolu hurt()
+        // ile aynıdır, yani canlanma ve ekip tepkisi değişmez.
+        hurtRaw(dps * dt, w);
+    }
+
+    /** Zırha takılmadan doğrudan can eksiltir (açlık, susuzluk, zehir). */
+    public void hurtRaw(float amount, GameWorld w) {
+        if (!alive) return;
+        hp -= amount;
+        if (hp <= 0f) {
+            hp = 0f;
+            alive = false;
+            deaths++;
+            reviveTimer = Balance.REVIVE_TIME;
+            if (w != null) w.onPlayerDown();
+        }
+    }
+
     public void update(GameWorld w, float dt, float inX, float inZ, boolean firing) {
         maxHp = maxHp();
         if (hurtFlash > 0f) hurtFlash = Math.max(0f, hurtFlash - dt * 2.2f);
@@ -231,11 +336,14 @@ public class Player {
             return;
         }
 
-        if (regenPerSec() > 0f && hp < maxHp) {
-            heal(regenPerSec() * dt);
+        updateNeeds(w, dt);
+
+        if (regenPerSec() > 0f && hp < maxHp && hunger > Balance.NEED_LOW
+                && thirst > Balance.NEED_LOW) {
+            heal(regenPerSec() * dt);       // aç ya da susuzken yara iyileşmez
         }
 
-        float speed = moveSpeed();
+        float speed = moveSpeed() * needSpeedFactor();
         if (dashTimer > 0f) {
             dashTimer -= dt;
             vx = dashDirX * Balance.DASH_SPEED;
@@ -284,6 +392,9 @@ public class Player {
     }
 
     private boolean blocked(GameWorld w, float nx, float nz) {
+        // Şehirlerdeki binaların içinden geçilemez.
+        float r = Balance.PLAYER_RADIUS * 0.6f;
+        if (WorldGen.blocked(nx, nz, r) && !WorldGen.blocked(x, z, r)) return true;
         int gx = BuildGrid.worldToCell(nx), gz = BuildGrid.worldToCell(nz);
         Structure s = w.grid.at(gx, gz);
         if (s == null || !s.blocks()) return false;

@@ -18,28 +18,38 @@ import com.karargah.survival.engine.MathX;
 public class BasePlanner {
     /** Oyuncuya bırakılan asgari hurda. */
     public static final int RESERVE = 130;
-    /** Sur hattı kare bir çerçevedir: kenar uzaklığı (Chebyshev) bu bantta. */
-    private static final float RING_MIN = 8.4f;
-    private static final float RING_MAX = 10.6f;
-    private static final int MAX_QUEUE = 5;
+    private static final int MAX_QUEUE = 3;
     private static final int MAX_UPGRADES = 2;
+    /** İki karar arasındaki en kısa süre — sürekli her yere bir şey dikmesin. */
+    private static final float DECIDE_PERIOD = 3.5f;
+    /** Yapacak iş bulamadığında bu kadar bekler (boşuna tarama yapmaz). */
+    private static final float IDLE_PERIOD = 8f;
 
     private float timer = 3f;
     public String lastDecision = "";
+    /** Kaç kez üs genişletildi (arayüzde ve testlerde okunur). */
+    public int expansions;
 
     public void reset() {
         timer = 3f;
         lastDecision = "";
+        expansions = 0;
     }
 
     public void update(GameWorld w, float dt) {
         if (!w.autoRebuild) return;
         timer -= dt;
         if (timer > 0f) return;
-        timer = 2.5f;
+        timer = DECIDE_PERIOD;
         // İnşaat kararları hazırlık aşamasında verilir; dalga sırasında ekip savaşır.
-        if (!w.waves.isPrepare() || w.gameOver) return;
+        // İnşa kararları gündüz verilir; gece ekip kampı savunur.
+        if (w.isNight() || w.gameOver) return;
         if (!hasBuilder(w)) return;
+
+        // Yer darlığı kararı kuyruktan önce gelir: kuyruk dolu diye üs
+        // büyüyemez kalırsa mimar sonsuza kadar aynı avluyu tıka basa doldurur.
+        if (needsMoreRoom(w, w.baseRadius) && tryExpand(w)) return;
+
         int queuedBuilds = 0, queuedUpgrades = 0;
         for (int i = 0; i < w.plans.size(); i++) {
             BuildPlan p = w.plans.get(i);
@@ -52,7 +62,7 @@ public class BasePlanner {
         if (onlyUpgrades && queuedUpgrades >= MAX_UPGRADES) return;
         int budget = w.scrap() - RESERVE;
         if (budget < 20) return;
-        decide(w, budget, onlyUpgrades);
+        if (!decide(w, budget, onlyUpgrades)) timer = IDLE_PERIOD;
     }
 
     private static boolean hasBuilder(GameWorld w) {
@@ -64,106 +74,189 @@ public class BasePlanner {
 
     private boolean affordable(GameWorld w, int type, int budget) {
         Balance.StructDef d = Balance.struct(type);
-        return w.waves.wave >= d.unlockWave && w.player.buildCost(d.cost) <= budget;
+        return w.dayCount >= d.unlockDay && w.canBuild(d);
     }
 
-    private void decide(GameWorld w, int budget, boolean onlyUpgrades) {
-        if (onlyUpgrades) {
-            Structure up = pickUpgrade(w, budget);
-            if (up != null && w.addUpgradePlan(up)) {
-                say(w, up.def().name + " yeterli değil, Sv." + (up.level + 1) + " yapıyorum");
-            }
-            return;
-        }
+    /** Bir karar verildiyse true; yapacak iş kalmadıysa false. */
+    private boolean decide(GameWorld w, int budget, boolean onlyUpgrades) {
+        if (onlyUpgrades) return upgradeSomething(w, budget);
+
+        float radius = w.baseRadius;
+
         // 1) Enerji açığı — kuleler yavaşlıyorsa her şeyden önce jeneratör
-        if (w.powerUse > w.powerGen + 0.5f && affordable(w, Balance.S_GENERATOR, budget)) {
-            if (place(w, Balance.S_GENERATOR, 3.5f, 8f, 0f, 0f,
-                    "Enerji açığı var, jeneratör kuruyorum")) {
-                return;
+        if (w.powerUse > w.powerGen + 0.5f && affordable(w, Balance.S_GENERATOR, budget)
+                && place(w, Balance.S_GENERATOR, ZONE_YARD, radius, 0f, 0f,
+                        "Enerji açığı var, jeneratör kuruyorum")) {
+            return true;
+        }
+
+        // 2) Sur hattındaki delik (kapılar bilerek açık kalır). Aynı anda en
+        // fazla iki duvar şantiyesi açılır; yoksa mimar bütün bütçeyi ve tüm
+        // inşaatçıları sur hattına gömüp kule dikmeye hiç sıra gelmiyor.
+        if (affordable(w, Balance.S_WALL, budget) && pendingWalls(w) < 2) {
+            int gap = findWallGap(w, radius);
+            if (gap >= 0 && w.addPlan(Balance.S_WALL, gap % Balance.GRID,
+                    gap / Balance.GRID, true)) {
+                say(w, "Sur hattında delik var, kapatıyorum");
+                return true;
             }
         }
 
-        // 2) Sur hattındaki delik (kapılar açık kalmalı)
-        if (affordable(w, Balance.S_WALL, budget)) {
-            int gap = findWallGap(w);
-            if (gap >= 0) {
-                int gx = gap % Balance.GRID, gz = gap / Balance.GRID;
-                if (w.addPlan(Balance.S_WALL, gx, gz, true)) {
-                    say(w, "Sur hattında delik var, kapatıyorum");
-                    return;
-                }
-            }
-        }
-
-        // 3) En zayıf yöne kule
+        // 3) En zayıf yöne kule (sur hattının hemen gerisindeki kuşağa)
         int side = weakestSide(w);
         if (side >= 0) {
             int type = pickTurret(w, budget);
             if (type >= 0) {
                 float a = sideAngle(side);
-                float px = (float) Math.sin(a) * 7f, pz = (float) Math.cos(a) * 7f;
-                if (place(w, type, 4.5f, 8.5f, px, pz,
+                float belt = radius - BaseLayout.TURRET_BELT * 0.5f;
+                float px = (float) Math.sin(a) * belt, pz = (float) Math.cos(a) * belt;
+                if (place(w, type, ZONE_BELT, radius, px, pz,
                         SIDE_NAMES[side] + " taraf zayıf, " + Balance.struct(type).name
                                 + " kuruyorum")) {
-                    return;
+                    return true;
                 }
             }
         }
 
         // 4) Kapı önüne tuzak
-        if (w.waves.wave >= 2 && affordable(w, Balance.S_SPIKE, budget)) {
+        if (w.dayCount >= 2 && affordable(w, Balance.S_SPIKE, budget)) {
             int gateSide = gateWithoutTrap(w);
             if (gateSide >= 0) {
                 float a = sideAngle(gateSide);
-                float px = (float) Math.sin(a) * 12f, pz = (float) Math.cos(a) * 12f;
-                if (place(w, Balance.S_SPIKE, 10.5f, 13.5f, px, pz,
+                float out = radius + Balance.CELL * 1.8f;
+                float px = (float) Math.sin(a) * out, pz = (float) Math.cos(a) * out;
+                if (place(w, Balance.S_SPIKE, ZONE_TRAP, radius, px, pz,
                         SIDE_NAMES[gateSide] + " kapının önüne tuzak koyuyorum")) {
-                    return;
+                    return true;
                 }
             }
         }
 
-        // 5) Destek yapıları
-        int turrets = countType(w, -1);
-        if (turrets >= 4 && countType(w, Balance.S_AMMO) == 0
-                && affordable(w, Balance.S_AMMO, budget)) {
-            if (place(w, Balance.S_AMMO, 4f, 8f, 0f, 0f,
-                    "Kuleler için cephanelik kuruyorum")) {
-                return;
-            }
+        // 5) Destek yapıları — hepsi avluya, reaktörün boşluğuna dokunmadan
+        if (countType(w, -1) >= 4 && countType(w, Balance.S_AMMO) == 0
+                && affordable(w, Balance.S_AMMO, budget)
+                && place(w, Balance.S_AMMO, ZONE_YARD, radius, 0f, 0f,
+                        "Kuleler için cephanelik kuruyorum")) {
+            return true;
         }
-        if (w.waves.wave >= 5 && countType(w, Balance.S_REPAIR) == 0
-                && affordable(w, Balance.S_REPAIR, budget)) {
-            if (place(w, Balance.S_REPAIR, 3.5f, 7f, 0f, 0f,
-                    "Tamir istasyonu kuruyorum, yapılar ayakta kalsın")) {
-                return;
-            }
+        if (w.dayCount >= 5 && countType(w, Balance.S_REPAIR) == 0
+                && affordable(w, Balance.S_REPAIR, budget)
+                && place(w, Balance.S_REPAIR, ZONE_YARD, radius, 0f, 0f,
+                        "Tamir istasyonu kuruyorum, yapılar ayakta kalsın")) {
+            return true;
         }
-        if (w.waves.wave >= 4 && countType(w, Balance.S_MED) == 0
-                && affordable(w, Balance.S_MED, budget)) {
-            if (place(w, Balance.S_MED, 3.5f, 7f, 0f, 6f,
-                    "Tıbbi istasyon kuruyorum")) {
-                return;
-            }
+        if (w.dayCount >= 4 && countType(w, Balance.S_MED) == 0
+                && affordable(w, Balance.S_MED, budget)
+                && place(w, Balance.S_MED, ZONE_YARD, radius, 0f, 9f,
+                        "Tıbbi istasyon kuruyorum")) {
+            return true;
         }
-        if (w.waves.wave >= 3 && countType(w, Balance.S_COLLECTOR) < 2
-                && budget > 400 && affordable(w, Balance.S_COLLECTOR, budget)) {
-            if (place(w, Balance.S_COLLECTOR, 3.5f, 7f, 0f, -6f,
-                    "Hurda toplayıcı kuruyorum")) {
-                return;
-            }
+        if (w.dayCount >= 3 && countType(w, Balance.S_COLLECTOR) < 2 && budget > 400
+                && affordable(w, Balance.S_COLLECTOR, budget)
+                && place(w, Balance.S_COLLECTOR, ZONE_YARD, radius, 0f, -9f,
+                        "Hurda toplayıcı kuruyorum")) {
+            return true;
         }
 
         // 6) Yeni iş yoksa mevcut yapıyı geliştir
+        return upgradeSomething(w, budget);
+    }
+
+    /** Kuyrukta bekleyen duvar şantiyesi sayısı. */
+    private int pendingWalls(GameWorld w) {
+        int n = 0;
+        for (int i = 0; i < w.plans.size(); i++) {
+            BuildPlan p = w.plans.get(i);
+            if (p.alive && !p.isUpgrade() && p.type == Balance.S_WALL) n++;
+        }
+        return n;
+    }
+
+    private boolean upgradeSomething(GameWorld w, int budget) {
         Structure up = pickUpgrade(w, budget);
-        if (up != null && w.addUpgradePlan(up)) {
-            say(w, up.def().name + " yeterli değil, Sv." + (up.level + 1) + " yapıyorum");
+        if (up == null || !w.addUpgradePlan(up)) return false;
+        say(w, up.def().name + " yeterli değil, Sv." + (up.level + 1) + " yapıyorum");
+        return true;
+    }
+
+    // ---- genişleme ------------------------------------------------------
+
+    /** Avlu ya da kule kuşağı doldu mu? */
+    private boolean needsMoreRoom(GameWorld w, float radius) {
+        if (radius >= BaseLayout.maxRadius()) return false;
+        return freeCells(w, ZONE_YARD, radius, 6) < 6
+                || freeCells(w, ZONE_BELT, radius, 4) < 4;
+    }
+
+    /** Bölgede en fazla {@code cap} taneye kadar boş hücre sayar. */
+    private int freeCells(GameWorld w, int zone, float radius, int cap) {
+        int n = 0;
+        float reach = radius + Balance.CELL * 3f;
+        int lo = cellLo(reach), hi = cellHi(reach);
+        for (int gz = lo; gz <= hi; gz++) {
+            for (int gx = lo; gx <= hi; gx++) {
+                float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
+                if (!inZone(zone, cx, cz, radius)) continue;
+                if (w.grid.canPlace(gx, gz) != BuildGrid.OK) continue;
+                if (w.planAt(gx, gz) != null) continue;
+                if (++n >= cap) return n;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * Sur hattını bir kademe dışarı taşır. Eski hat yıkılmaz — içeride ikinci
+     * bir savunma çizgisi olarak kalır ama artık tamir/tamamlama listesinde
+     * değildir, üstelik dört kapısı da sonuna kadar açılır ki ekip sıkışmasın.
+     */
+    private boolean tryExpand(GameWorld w) {
+        float old = w.baseRadius;
+        float next = BaseLayout.snap(old + BaseLayout.STEP);
+        if (next <= old + 0.5f) return false;
+        w.baseRadius = next;
+        expansions++;
+        openOldGates(w, old);
+        say(w, "Üsse yer kalmadı, sur hattını " + Math.round(next)
+                + " birime genişletiyorum");
+        return true;
+    }
+
+    /** Eski sur hattındaki kapıları iyice açar (içeride kalmayalım). */
+    private void openOldGates(GameWorld w, float oldRadius) {
+        float wide = BaseLayout.GATE_HALF * 2.2f;
+        int lo = cellLo(oldRadius + 2f), hi = cellHi(oldRadius + 2f);
+        for (int gz = lo; gz <= hi; gz++) {
+            for (int gx = lo; gx <= hi; gx++) {
+                float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
+                if (!BaseLayout.isWallRing(cx, cz, oldRadius)) continue;
+                float ax = Math.abs(cx), az = Math.abs(cz);
+                boolean nearGate = az >= ax ? ax <= wide : az <= wide;
+                if (!nearGate) continue;
+                Structure st = w.grid.at(gx, gz);
+                if (st != null && st.type == Balance.S_WALL) w.removeStructure(st, true);
+                BuildPlan pl = w.planAt(gx, gz);
+                if (pl != null) w.cancelPlanAt(gx, gz);
+            }
         }
     }
 
     // ---- yardımcılar ----------------------------------------------------
 
     private static final String[] SIDE_NAMES = {"Kuzey", "Doğu", "Güney", "Batı"};
+
+    static final int ZONE_YARD = 0;
+    static final int ZONE_BELT = 1;
+    static final int ZONE_TRAP = 2;
+
+    private static boolean inZone(int zone, float cx, float cz, float radius) {
+        if (BaseLayout.isCoreClear(cx, cz)) return false;
+        switch (zone) {
+            case ZONE_BELT: return BaseLayout.isTurretBelt(cx, cz, radius);
+            case ZONE_TRAP: return BaseLayout.isTrapBand(cx, cz, radius);
+            default: return BaseLayout.isYard(cx, cz, radius);
+        }
+    }
 
     private static float sideAngle(int side) {
         switch (side) {
@@ -179,7 +272,6 @@ public class BasePlanner {
         return z > 0 ? 0 : 2;
     }
 
-    /** Sur halkasındaki boş hücre (kapı hücreleri hariç). */
     /** Verilen yarıçapı kapsayan hücre aralığı (tüm ızgarayı taramamak için). */
     private static int cellLo(float radius) {
         return Math.max(0, BuildGrid.worldToCell(-radius) - 1);
@@ -189,20 +281,23 @@ public class BasePlanner {
         return Math.min(Balance.GRID - 1, BuildGrid.worldToCell(radius) + 1);
     }
 
-    private int findWallGap(GameWorld w) {
+    /** Güncel sur hattındaki ilk boş hücre (kapılar hariç). */
+    private int findWallGap(GameWorld w, float radius) {
         int best = -1;
         float bestScore = -1f;
-        int lo = cellLo(RING_MAX), hi = cellHi(RING_MAX);
+        float reach = radius + Balance.CELL;
+        int lo = cellLo(reach), hi = cellHi(reach);
         for (int gz = lo; gz <= hi; gz++) {
             for (int gx = lo; gx <= hi; gx++) {
                 float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
-                float ring = Math.max(Math.abs(cx), Math.abs(cz));
-                if (ring < RING_MIN || ring > RING_MAX) continue;
-                if (isGateCell(cx, cz)) continue;
+                if (!BaseLayout.isWallRing(cx, cz, radius)) continue;
+                if (BaseLayout.isGate(cx, cz)) continue;
                 if (w.grid.at(gx, gz) != null || w.planAt(gx, gz) != null) continue;
                 if (w.grid.canPlace(gx, gz) != BuildGrid.OK) continue;
-                // sur hattının ortasına yakın delikler önce kapatılır
-                float score = 10f - Math.abs(ring - 9.5f);
+                // Kapıya en yakın delikler önce kapatılır (en çok oradan girerler)
+                float ax = Math.abs(cx), az = Math.abs(cz);
+                float alongGate = az >= ax ? ax : az;
+                float score = 40f - alongGate;
                 if (score > bestScore) {
                     bestScore = score;
                     best = gz * Balance.GRID + gx;
@@ -210,14 +305,6 @@ public class BasePlanner {
             }
         }
         return best;
-    }
-
-    /** Kapı hücreleri: her kenarın ortasında iki hücrelik geçit açık kalır. */
-    private static boolean isGateCell(float cx, float cz) {
-        float ax = Math.abs(cx), az = Math.abs(cz);
-        if (Math.max(ax, az) < 6f) return false;
-        // Kuzey/güney kenarında kapı x ekseninin ortasında, doğu/batıda z'nin
-        return az >= ax ? ax <= 2.1f : az <= 2.1f;
     }
 
     private int countType(GameWorld w, int type) {
@@ -253,7 +340,7 @@ public class BasePlanner {
             if (count[i] < count[worst]) worst = i;
         }
         // Dalga ilerledikçe her yönde daha çok kule hedeflenir
-        int target = 1 + w.waves.wave / 4;
+        int target = 1 + w.dayCount / 4;
         return count[worst] < target ? worst : -1;
     }
 
@@ -261,11 +348,9 @@ public class BasePlanner {
     private int pickTurret(GameWorld w, int budget) {
         int[] order = {Balance.S_TESLA, Balance.S_SNIPER_TOWER, Balance.S_CANNON,
                 Balance.S_FLAME, Balance.S_MG};
-        // Zengin isek üst sınıf, değilse makineli
         for (int i = 0; i < order.length; i++) {
             int t = order[i];
             if (!affordable(w, t, budget)) continue;
-            // pahalı kuleyi ancak bütçe rahatken seç
             int cost = w.player.buildCost(Balance.struct(t).cost);
             if (cost * 2 > budget && t != Balance.S_MG) continue;
             return t;
@@ -302,7 +387,7 @@ public class BasePlanner {
             int cost = w.player.buildCost(s.def().upgradeCost(s.level));
             if (cost > budget) continue;
             if (s.def().upgradeCores(s.level) > w.cores()) continue;
-            float score = 0f;
+            float score;
             if (s.isTurret()) score = 60f - s.level * 8f;
             else if (s.type == Balance.S_WALL) score = 22f - s.level * 5f;
             else if (s.type == Balance.S_CORE) score = 30f - s.level * 6f;
@@ -316,18 +401,18 @@ public class BasePlanner {
         return best;
     }
 
-    /** Verilen halka/nokta civarında uygun boş hücreye plan açar. */
-    private boolean place(GameWorld w, int type, float minR, float maxR,
+    /** Bölge içinde tercih edilen noktaya en yakın boş hücreye plan açar. */
+    private boolean place(GameWorld w, int type, int zone, float radius,
                           float preferX, float preferZ, String reason) {
         int best = -1;
         float bestD = Float.MAX_VALUE;
-        int lo = cellLo(maxR), hi = cellHi(maxR);
+        float reach = radius + Balance.CELL * 3f;
+        int lo = cellLo(reach), hi = cellHi(reach);
         for (int gz = lo; gz <= hi; gz++) {
             for (int gx = lo; gx <= hi; gx++) {
                 float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
-                float r = MathX.len(cx, cz);
-                if (r < minR || r > maxR) continue;
-                if (isGateCell(cx, cz)) continue;          // kapıları tıkama
+                if (!inZone(zone, cx, cz, radius)) continue;
+                if (BaseLayout.isGate(cx, cz) && zone != ZONE_TRAP) continue;
                 if (w.grid.canPlace(gx, gz) != BuildGrid.OK) continue;
                 if (w.planAt(gx, gz) != null) continue;
                 float d = MathX.dist2(cx, cz, preferX, preferZ);

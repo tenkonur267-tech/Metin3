@@ -1,4 +1,4 @@
-# Son Karargâh — 3B mobil hayatta kalma / üs savunma oyunu
+# Son Karargâh — 3B açık dünya zombi survival
 
 Android için yazılmış **gerçek bir native oyun**: tarayıcı yok, WebView yok,
 oyun motoru bağımlılığı yok. Tüm 3B motor (OpenGL ES 3.0), ses sentezi,
@@ -6,74 +6,84 @@ fizik ve arayüz bu depodaki Java kodudur. Çıktı doğrudan kurulabilir bir AP
 
 ## Oyun
 
-Haritanın ortasındaki **reaktörü** sonsuz zombi dalgalarına karşı savun.
-Her dalga arasında bir **hazırlık aşaması** var: bu sürede üssünü kurar,
-yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
+**100.000 x 100.000 birimlik açık bir dünyada** hayatta kalırsın. Dalga sistemi
+yoktur: evre, geri sayım, "dalgayı başlat" düğmesi ya da doğma kapısı yok.
+Bunun yerine gerçek bir survival döngüsü var — **gündüz keşfe çıkıp kaynak
+toplar, geceleri kampını savunursun.**
 
-- **Dalga döngüsü:** hazırlık → dalga → temizlendi → hazırlık... Sonsuza kadar.
-  Her 5. dalgada **Mutant Dev** gelir ve enerji çekirdeği bırakır.
-- **Duvarlar komşularına göre birleşir** (köşe, T ve haç parçaları) — sıraladığın
-  duvarlar boşluksuz tek bir sur gibi durur.
-- **12 farklı yapı**, hepsi 1→5 seviye geliştirilebilir (görünümleri de değişir:
-  kule namluları çoğalır, zırh plakası ve enerji hatları eklenir, yapı irileşir):
+### Dünya
+
+- **Harita hiçbir yerde saklanmaz.** Her nokta yalnızca koordinatından
+  hesaplanır (`WorldGen`), dolayısıyla dünya devasa olmasına rağmen bellekte
+  yer kaplamaz ve aynı yere döndüğünde aynı manzara seni karşılar.
+- **Yedi biyom:** ova, orman, bataklık, çöl, tundra, harabe ve şehir. Her
+  biyomun kendi zemini, bitki örtüsü ve zombi yoğunluğu var.
+- **Şehirler:** kafes üzerine serpilmiş merkezler, sokak ızgarası ve binalar.
+  Binaların içinden geçilmez; aralarında dolaşıp bina önlerindeki sandıkları
+  yağmalarsın. Şehirler en zengin ama en tehlikeli yerlerdir.
+- **Zombi yoğunluğu yere göre değişir:** çölde ve tundrada neredeyse kimse yok,
+  harabelerde ve şehirlerde kaynıyor. Yoğunluk gece her yerde artar.
+- **Gün/gece döngüsü:** bir tam gün 12 dakika. Gündüz çalışır, gece saklanır
+  ya da savaşırsın. Işık, sis ve gökyüzü saate göre değişir.
+
+### Hayatta kalma
+
+- **Dört kaynak:** hurda, odun, taş ve lif. Hepsi dünyadan toplanır.
+- **Toplama:** bir ağacın, kayanın, çalının ya da varilin yanına gidince
+  toplama düğmesi belirir; basılı tutarsın, iş dolunca kaynak kasaya girer.
+  Kesilen ağacın yerinde kütük kalır ve bir süre sonra geri büyür.
+- **Balta ve kazma** üretip geliştirirsin: balta odun, kazma taş toplamayı
+  hızlandırır (odun + hurda + lif ile, 4 seviye).
+- **Açlık ve susuzluk** sürekli azalır. Biri sıfırlanırsa can erimeye başlar,
+  düşükken yaran da iyileşmez ve yavaşlarsın. Yiyecek çalılardan (meyve),
+  enkazdan, zombilerin üstünden ve şehir sandıklarından çıkar.
+- **İnşaat topladığın malzemeyle yapılır:** duvar tamamen odundan örülür,
+  kuleler hurda + odun ister, ağır yapılar taş da. Hiçbir şey "para" ile
+  alınmaz; ne topladıysan onu kurarsın.
+
+### Gece baskınları
+
+- Gün batımında **kampın kokusunu alan zombiler üsse yürümeye başlar.** Bunlar
+  bir dalga değil: gece boyunca damla damla gelirler, şafakla birlikte kesilir.
+- Baskının büyüklüğü **hayatta kalınan güne** göre artar.
+- **Her yedinci gece kanlı ay:** çok daha kalabalık, daha hızlı ve elit dolu.
+- Dünyada gezen zombiler bundan ayrıdır; onlar üsse yürümez, kendi bölgelerinde
+  dolaşır ve yaklaşırsan saldırır.
+
+### Kamp
+
+- Merkezde **reaktör** var; düşerse oyun biter.
+- **Sur hattı iç içe halkalardan oluşur ve yer daraldıkça kendiliğinden
+  büyür:** reaktörün etrafında dokunulmaz bir boşluk, sonra avlu (destek
+  yapıları), sonra kule kuşağı, sonra sur ve surun dışında tuzak bandı.
+  Her kenarın ortasında dört hücrelik geniş bir kapı açık kalır.
+- **14 farklı yapı**, hepsi geliştirilebilir (görünümleri de değişir):
   duvar, dikenli tuzak, makineli/top/alev/tesla/nişancı kuleleri, jeneratör,
-  cephanelik, tamir istasyonu, tıbbi istasyon, hurda toplayıcı.
-- **Enerji sistemi:** kuleler enerji tüketir, jeneratörler üretir. Açık varsa
-  bütün kulelerin atış hızı düşer — üssü planlamak gerekir.
-- **6 silah** (tabanca, hafif makineli, pompalı, saldırı tüfeği, keskin nişancı,
-  roketatar), her biri 5 seviye geliştirilebilir.
-- **Karakter gelişimi:** öldürdükçe tecrübe → seviye → yetenek puanı.
-  12 yetenek dalı (can, zırh, hız, hasar, şarjör, kritik, mühendislik,
-  usta tamirci, hurdacı, kan emici, kaçış ustası, yenilenme).
-- **6 zombi türü:** yürüyen, koşucu, sürüngen, tüküren, kaba ve dev boss;
-  ayrıca dalga ilerledikçe çıkan güçlendirilmiş (elit) türevler.
-- **Akıllı yol bulma:** zombiler Dijkstra tabanlı akış alanıyla en ucuz yolu
-  arar; yol kapalıysa en zayıf duvarı kırmayı seçer. Yani labirent kurabilirsin.
-- **Yoldaş NPC'ler:** Kışla kurup dört rolde yoldaş alırsın — muhafız, mühendis,
-  toplayıcı, sağlıkçı. EKİP panelinde iki ayrı şey ayarlanır:
-  **duruş** (takip et / burayı tut / reaktörü koru / bölgeye saldır / geri çekil)
-  ve **görevler**. Görevler bir liste değil bir küme: tek bir yoldaşa aynı anda
-  savaş + onar + inşa + topla + iyileştir verebilirsin. Hangisinin daha acil
-  olduğuna kendisi karar verir, uzun süre aynı işte kalırsa sırayı diğerine
-  bırakır. Her rolün her görevde ayrı verimi vardır (mühendis inşada %100,
-  muhafız %50 gibi) ve panelde gösterilir.
-- **Kendi kendine inşaat (OTO İNŞA):** Ekip sana sormadan üssü planlar. Mimar
-  her hazırlık aşamasında durumu okur ve şu sırayla karar verir: enerji açığı
-  varsa jeneratör → sur hattındaki delik (kapılar bilerek açık bırakılır) →
-  kule sayısı en az olan yöne kule → kapı önüne tuzak → destek yapıları
-  (cephanelik, tamir, tıbbi, toplayıcı) → yapacak yeni iş kalmadıysa mevcut
-  yapıları geliştirir. Kasada oyuncu için asgari yedek bırakır, kararının
-  gerekçesini söyler ("Batı taraf zayıf, Tesla Kulesi kuruyorum").
-  Dalga sırasında yeni şantiye açmaz; o zaman ekip savaşır.
-- **Elle plan:** İstersen PLAN düğmesini açıp kendin şantiye bırakırsın; senin
-  planların önceliklidir. Şantiyeye dokunmak iptal eder (%80 iade).
-- **Ortak kasa:** Hurda ve çekirdek tek kasada. Senin topladığın, toplayıcının
-  getirdiği, dalga ödülleri hep oraya girer; inşaat, geliştirme ve yoldaş
-  ücretleri hep oradan ödenir. Üst çubukta ekibin katkısı ayrıca gösterilir.
-- **Serbest karar (varsayılan duruş):** Yoldaş nerede duracağına duruma bakarak
-  kendisi karar verir — reaktörün dibinde zombi varsa oraya koşar, üsse sızan
-  olursa keser, sen zor durumdaysan yanına gelir, dalga sırasında zombilerin
-  en yoğun geldiği cepheye geçer, hazırlıkta işinin başına döner.
-- **Mesafe koruma:** Her yoldaşın bir *rahat mesafesi* vardır (muhafız 5,
-  toplayıcı 7, diğerleri 7,5 birim). Zombi bu mesafenin içine girerse yoldaş
-  ateş etmeyi bırakmadan geri çekilir; mesafe 1,5 katına çıkana kadar da geri
-  dönmez, böylece bir ileri bir geri titremez. Ganimet seçerken zombi dibindeki
-  yığınları atlar, gittiği yığının dibine zombi düşerse vazgeçer; bir yığını
-  aynı anda yalnızca bir yoldaş sahiplenir, ikisi aynı hurdaya koşmaz.
-- **Konuşma baloncukları:** Ne yapacağını başının üstünde söyler ("Duvarı
-  onarıyorum", "Ganimeti alıyorum", "Reaktörün başına geçiyorum!").
-- **Kendini geliştirme:** İzin açıkken hazırlık aşamasında kasada bolluk varsa
-  kendi silahını ve seviyesini yükseltir; kasada asgari yedek bırakır ve ne
-  kadar harcadığını söyler. İstemezsen panelden kapatırsın.
-- Emir dışında da akıllıdırlar: A* ile duvarları dolaşır (takılmazlar), ateş
-  hattı kapalıysa ateş etmez, canları azalınca kendiliğinden geri çekilip
-  iyileşir ve üssün durumunu değerlendirip öneride bulunurlar ("enerji açığın
-  var", "batı taraf savunmasız", "şantiyeler bekliyor, kimsede inşa görevi yok").
-- **Yere düşen ganimet:** Ölen zombiler hurda (boss ayrıca enerji çekirdeği)
-  düşürür ve **toplanana kadar yerde kalır** — kendiliğinden kaybolmaz.
-  Yaklaşınca mıknatıs gibi çekilir, TOPLA görevli yoldaş senin için toplar;
-  üst çubukta sahada bekleyen hurda miktarı görünür.
-- **Kayıt:** oyun otomatik kaydedilir, ana menüden "Devam Et" ile sürdürülür.
+  cephanelik, tamir istasyonu, tıbbi istasyon, hurda işleyici, kışla.
+- **Duvarlar komşularına göre birleşir** (köşe, T ve haç parçaları).
+- **Enerji sistemi:** kuleler enerji tüketir, jeneratörler üretir.
+- **6 silah**, her biri 5 seviye geliştirilebilir.
+- **Karakter gelişimi:** öldürdükçe tecrübe → seviye → yetenek puanı, 12 dal.
+
+### Yoldaşlar
+
+- Kışla kurup dört rolde yoldaş alırsın: muhafız, mühendis, toplayıcı, sağlıkçı.
+- **Duruş** (takip et / burayı tut / reaktörü koru / bölgeye saldır / geri çekil
+  / serbest karar) ve **görevler** ayrı ayrı ayarlanır. Görevler bir liste değil
+  bir küme: tek bir yoldaşa aynı anda savaş + onar + inşa + topla + iyileştir
+  verebilirsin. Her rolün her görevde ayrı verimi vardır.
+- **Kaynak toplarlar:** yerde ganimet varsa önce onu alır, yoksa ağaç keser,
+  taş kırar, enkaz ayıklar. Kasada en az olan kaynağa öncelik verirler.
+- **Kendi kendine inşaat:** mimar sana sormadan kampı planlar — enerji açığına
+  jeneratör, sur hattındaki deliğe duvar, zayıf yöne kule, kapı önüne tuzak.
+  Yer kalmayınca sur hattını bir kademe dışarı taşır ve eski hattın kapılarını
+  sonuna kadar açar.
+- **Mesafe koruma:** her yoldaşın rolüne göre bir rahat mesafesi vardır. Zombi
+  içeri girerse ateş etmeyi kesmeden geri çekilir; histerezis sayesinde bir
+  ileri bir geri titremez. Ulaşamadığı bir hedefte takılıp kalmaz — üç saniye
+  yaklaşamazsa vazgeçip başka işe geçer.
+- **Konuşma baloncukları:** ne yapacağını başının üstünde söyler.
+- **Ortak kasa:** senin topladığın da onların getirdiği de aynı kasaya girer.
 
 ## Kontroller (dokunmatik)
 
@@ -82,6 +92,7 @@ yapılarını geliştirir, silah alır ve yeteneklerine puan dağıtırsın.
 | Hareket | Sol yarıya bas ve sürükle (dinamik sanal çubuk) |
 | Ateş | Sağ alttaki ATEŞ düğmesi — en yakın hedefe otomatik nişan |
 | Şarjör / Atılma / Silah değiştir | ATEŞ'in yanındaki yuvarlak düğmeler |
+| Kaynak toplama | Bir ağacın/kayanın/çalının/varilin yanına gidince yeşil toplama düğmesi belirir; basılı tut |
 | Kamera | Sağ yarıda sürükle, iki parmakla yakınlaştır |
 | İnşa modu | Sağ üstteki "İNŞA MODU" düğmesi |
 | Yapı kurma | İnşa modunda alttan yapı seç, ızgaraya dokun (sürükleyerek seri dizebilirsin) |
@@ -144,8 +155,11 @@ android/app/src/main/java/com/karargah/survival/
 │   ├── BuildPlan.java       şantiye (yoldaşların kurduğu inşa/geliştirme planı)
 │   ├── BasePlanner.java     üssü okuyup nereye ne kurulacağına karar veren mimar
 │   ├── Advisor.java         üssü değerlendirip öneri veren yoldaş aklı
-│   ├── Pickup.java          yere düşen hurda/çekirdek
-│   ├── WaveManager.java     dalga kadroları ve hazırlık süresi
+│   ├── Pickup.java          yere düşen hurda/çekirdek/yiyecek/su
+│   ├── WorldGen.java        açık dünya üreteci: biyom, şehir, bina, yoğunluk
+│   ├── Harvest.java         kaynak düğümleri: ağaç, kaya, çalı, enkaz
+│   ├── Threat.java          gün/geceye bağlı tehdit ve gece baskınları
+│   ├── BaseLayout.java      kampın halka düzeni ve genişleme kuralları
 │   ├── Models.java          bütün 3B modeller kodla üretilir
 │   ├── WorldRenderer.java   sahneyi çizer, iskelet animasyonu
 │   └── SaveStore.java       JSON kayıt
@@ -168,9 +182,16 @@ cd android
 python3 tools/check_shaders.py       # GLSL ES 3.00 shader derlemesi
 ```
 
-- `SimulationTest` oyunu çizimsiz olarak binlerce kare koşturur: dalgaların
-  tıkanmadığını, sayıların bozulmadığını (NaN/negatif kaynak), inşa–geliştir–sat
-  akışının ve denge tablolarının tutarlılığını doğrular.
+- `SimulationTest` oyunu çizimsiz olarak binlerce kare koşturur: gece
+  baskınlarının tıkanmadığını, sayıların bozulmadığını (NaN/negatif kaynak),
+  inşa–geliştir–sat akışının ve denge tablolarının tutarlılığını doğrular.
+- `SurvivalTest` survival çekirdeğini denetler: ağaç kesince odun geliyor mu,
+  kesilen düğüm geri büyüyor mu, alet toplamayı hızlandırıyor mu, duvar
+  gerçekten odunla mı örülüyor, gece baskını gün batımında başlayıp şafakta
+  bitiyor mu, yoldaşlar kaynak topluyor mu.
+- `WorldTest` açık dünyayı denetler: dünya deterministik mi, bütün biyomlar
+  haritada var mı, şehirlerde bina ve sokak var mı, zombi yoğunluğu şehirlerde
+  gerçekten yüksek mi, kampın çevresi temiz mi, üs yer kalmayınca genişliyor mu.
 - `M4Test` matris matematiğini doğrular (matrisler bilerek saf Java'dır:
   `android.opengl.Matrix` birim testlerinde boş döndüğü için mesh üretimi test
   edilemezdi; uygulama geliştirme sırasında rastgele girdilerle Android'in
@@ -184,5 +205,8 @@ python3 tools/check_shaders.py       # GLSL ES 3.00 shader derlemesi
 ## Dengeyi değiştirmek
 
 `game/Balance.java` içindeki tablolar oyunun tamamını belirler: yapı
-maliyetleri/canları/hasarları, silah istatistikleri, zombi türleri, dalga
-bütçesi ve yetenekler. Tek bir sayıyı değiştirip yeniden derlemek yeterli.
+maliyetleri (hurda/odun/taş), canları, hasarları, silah istatistikleri, zombi
+türleri, gün uzunluğu, gece baskını büyüklüğü, açlık/susuzluk hızları ve
+yetenekler. Tek bir sayıyı değiştirip yeniden derlemek yeterli.
+Dünyanın şekli (biyom eşikleri, şehir sıklığı, kaynak bolluğu) `WorldGen.java`
+ve `Harvest.java` içindedir.

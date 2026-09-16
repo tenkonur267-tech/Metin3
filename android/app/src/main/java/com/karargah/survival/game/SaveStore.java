@@ -55,7 +55,8 @@ public final class SaveStore {
         try {
             JSONObject root = new JSONObject();
             root.put("v", VERSION);
-            root.put("wave", w.waves.wave);
+            root.put("day", w.dayCount);
+            root.put("clock", w.timeOfDay);
             root.put("record", w.waveRecord);
             root.put("kills", w.totalKills);
             root.put("time", w.playTime);
@@ -69,6 +70,13 @@ public final class SaveStore {
             jp.put("xp", p.xp);
             jp.put("sp", p.skillPoints);
             jp.put("scrap", p.scrap);
+            jp.put("wood", p.wood);
+            jp.put("stone", p.stone);
+            jp.put("fiber", p.fiber);
+            jp.put("axe", p.axeLevel);
+            jp.put("pick", p.pickLevel);
+            jp.put("hunger", p.hunger);
+            jp.put("thirst", p.thirst);
             jp.put("cores", p.cores);
             jp.put("kills", p.kills);
             jp.put("deaths", p.deaths);
@@ -172,20 +180,26 @@ public final class SaveStore {
             w.structuresBuilt = root.optInt("built", 0);
             w.structuresLost = root.optInt("lost", 0);
 
-            int wave = root.optInt("wave", 0);
-            w.waves.reset();
-            w.waves.wave = wave;
-            w.waves.phase = WaveManager.PHASE_PREPARE;
-            w.waves.timer = Balance.buildTime(wave + 1);
-            w.waves.activeSpawnPoints = Math.max(3, Math.min(WaveManager.MAX_SPAWN_POINTS,
-                    2 + (wave + 2) / 3));
+            w.threat.reset();
+            w.dayCount = Math.max(1, root.optInt("day", 1));
+            // Kayıttan dönerken günün başında uyan: gecenin ortasında
+            // yüklenip hazırlıksız baskına yakalanma.
+            w.timeOfDay = (float) root.optDouble("clock", 0.1);
+            if (w.isNight()) w.timeOfDay = 0.08f;
 
             Player p = w.player;
             JSONObject jp = root.getJSONObject("player");
             p.level = jp.optInt("level", 1);
             p.xp = jp.optInt("xp", 0);
             p.skillPoints = jp.optInt("sp", 0);
-            p.scrap = jp.optInt("scrap", 200);
+            p.scrap = jp.optInt("scrap", 120);
+            p.wood = jp.optInt("wood", 60);
+            p.stone = jp.optInt("stone", 0);
+            p.fiber = jp.optInt("fiber", 0);
+            p.axeLevel = Math.max(1, jp.optInt("axe", 1));
+            p.pickLevel = Math.max(1, jp.optInt("pick", 1));
+            p.hunger = (float) jp.optDouble("hunger", Balance.NEED_MAX);
+            p.thirst = (float) jp.optDouble("thirst", Balance.NEED_MAX);
             p.cores = jp.optInt("cores", 0);
             p.kills = jp.optInt("kills", 0);
             p.deaths = jp.optInt("deaths", 0);
@@ -278,7 +292,7 @@ public final class SaveStore {
             w.advisor.reset();
             w.refreshAllWalls();
             w.flow.compute(w.grid);
-            w.message("Kayıt yüklendi — " + (wave + 1) + ". dalgaya hazırlan", 3.5f);
+            w.message("Kayıt yüklendi — " + w.dayCount + ". gün, şafak vakti", 3.5f);
             return true;
         } catch (Exception e) {
             Log.e(TAG, "Kayıt okunamadı", e);

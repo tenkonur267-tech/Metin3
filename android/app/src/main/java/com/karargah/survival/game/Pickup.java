@@ -6,6 +6,10 @@ import com.karargah.survival.engine.MathX;
 public class Pickup {
     public static final int SCRAP = 0;
     public static final int CORE = 1;
+    /** Şehirlerden yağmalanan konserve. */
+    public static final int FOOD = 2;
+    /** Şehirlerden yağmalanan su. */
+    public static final int WATER = 3;
 
     public int kind;
     public int amount;
@@ -20,6 +24,16 @@ public class Pickup {
     public float magnet;
     /** Bu yığına giden yoldaş (başkası aynı yığına koşmasın). */
     public Npc claimedBy;
+    /**
+     * Ulaşılamadığı anlaşıldığında bir süre kimse denemesin (ör. duvarın
+     * üstüne düşmüş yığın). Sıfıra inince yeniden denenir.
+     */
+    public float unreachable;
+
+    /** Yalnızca oyuncunun toplayabileceği tür mü (yiyecek, su)? */
+    public boolean playerOnly() {
+        return kind == FOOD || kind == WATER;
+    }
 
     public void init(int kind, int amount, float x, float z) {
         this.kind = kind;
@@ -38,11 +52,13 @@ public class Pickup {
         this.resting = false;
         this.magnet = 0f;
         this.claimedBy = null;
+        this.unreachable = 0f;
         this.bob = MathX.rnd(0f, MathX.TAU);
     }
 
     public void update(GameWorld w, float dt) {
         if (!alive) return;
+        if (unreachable > 0f) unreachable -= dt;
         life -= dt;
         if (life <= 0f) {
             alive = false;
@@ -65,6 +81,9 @@ public class Pickup {
                 } else {
                     vy = 0f;
                     resting = true;
+                    // Duvarın ya da kışlanın üstüne düşen yığına kimse
+                    // ulaşamaz; yere konarken en yakın açık hücreye kayar.
+                    w.slideOutOfStructures(this);
                 }
             }
             float half = Balance.WORLD_HALF - 1f;

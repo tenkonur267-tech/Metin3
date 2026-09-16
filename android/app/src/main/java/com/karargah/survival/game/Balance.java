@@ -9,12 +9,60 @@ import com.karargah.survival.engine.MathX;
 public final class Balance {
 
     // ---- dünya ----------------------------------------------------------
+    /** Açık dünya 100.000 x 100.000 birim; merkez (0,0) üssün olduğu yer. */
+    public static final float WORLD_SIZE = 100000f;
+    public static final float WORLD_HALF = WORLD_SIZE * 0.5f;
+
     public static final float CELL = 2f;
-    public static final int GRID = 60;                 // 60x60 hücre
-    public static final float WORLD_HALF = GRID * CELL * 0.5f;   // 60 birim
-    public static final float BUILD_RADIUS = 40f;      // inşaat yapılabilen alan
-    public static final float SPAWN_RADIUS = 54f;
+    public static final int GRID = 128;                // üs ızgarası 128x128 hücre
+    /** Üs ızgarasının yarı genişliği (dünya değil, sadece inşa bölgesi). */
+    public static final float BASE_HALF = GRID * CELL * 0.5f;   // 128 birim
+    /**
+     * İnşaat yapılabilen alan. Kampın büyüyebileceği azami çap; dışarısı
+     * açık dünyadır ve kaynak düğümleri hemen surun dibinden başlar.
+     */
+    public static final float BUILD_RADIUS = 58f;
+    public static final float SPAWN_RADIUS = 58f;      // dalga zombilerinin doğduğu halka
     public static final int CORE_CELLS = 4;            // çekirdek 4x4 hücre kaplar
+
+    /** Oyuncunun etrafında canlı tutulan simülasyon yarıçapı. */
+    public static final float ACTIVE_RADIUS = 150f;
+    /** Bir tam gün-gece döngüsünün gerçek süresi (saniye). */
+    public static final float DAY_LENGTH = 12f * 60f;
+    /** Dünyada aynı anda gezebilecek azami başıboş zombi. */
+    public static final int ROAMER_MAX = 46;
+
+    // ---- hayatta kalma ihtiyaçları --------------------------------------
+    public static final float NEED_MAX = 100f;
+    /** Tokluk bir buçuk günde, su bir günde biter. */
+    public static final float HUNGER_DRAIN = NEED_MAX / (DAY_LENGTH * 1.5f);
+    public static final float THIRST_DRAIN = NEED_MAX / DAY_LENGTH;
+    /** İhtiyaç sıfırlandığında saniyede eriyen can. */
+    public static final float STARVE_DPS = 1.6f;
+    public static final float DEHYDRATE_DPS = 2.6f;
+    /** Bu seviyenin altında hareket yavaşlar ve uyarı verilir. */
+    public static final float NEED_LOW = 25f;
+    public static final int FOOD_RESTORE = 38;
+    public static final int WATER_RESTORE = 42;
+
+    // ---- kaynaklar ------------------------------------------------------
+    /** Hurda metal: enkazdan, varillerden ve zombilerden çıkar. */
+    public static final int R_SCRAP = 0;
+    /** Odun: ağaç keserek elde edilir. İlk duvarların ana malzemesi. */
+    public static final int R_WOOD = 1;
+    /** Taş: kaya kırarak elde edilir. Sağlam yapıların malzemesi. */
+    public static final int R_STONE = 2;
+    /** Lif: çalılardan toplanır. Sargı ve alet yapımında kullanılır. */
+    public static final int R_FIBER = 3;
+    public static final int R_COUNT = 4;
+
+    public static final String[] RES_NAMES = {"Hurda", "Odun", "Taş", "Lif"};
+    public static final String[] RES_SHORT = {"HRD", "ODN", "TAŞ", "LİF"};
+    public static final int[] RES_COLORS = {0xFFD54F, 0xA1887F, 0xB0BEC5, 0x9CCC65};
+
+    public static String resName(int r) {
+        return RES_NAMES[MathX.clampI(r, 0, R_COUNT - 1)];
+    }
 
     // ---- yapı türleri ---------------------------------------------------
     public static final int KIND_CORE = 0;
@@ -44,7 +92,9 @@ public final class Balance {
         public final String name;
         public final String desc;
         public final int color;
-        public final int cost;
+        public final int cost;            // hurda maliyeti
+        public final int woodCost;
+        public final int stoneCost;
         public final int coreCost;        // 3. seviyeden sonra gereken enerji çekirdeği
         public final float hp;
         public final float hpPerLevel;    // seviye başına çarpan artışı
@@ -55,19 +105,39 @@ public final class Balance {
         public final float damage;
         public final float splash;
         public final float power;         // + üretim, - tüketim
-        public final int unlockWave;
+        /** Kaçıncı günden itibaren kurulabilir (dalga yerine gün). */
+        public final int unlockDay;
         public final String icon;
 
-        StructDef(int id, int kind, String name, String icon, String desc, int color, int cost,
+        StructDef(int id, int kind, String name, String icon, String desc, int color,
+                  int cost, int woodCost, int stoneCost,
                   int coreCost, float hp, float hpPerLevel, boolean blocks, int maxLevel,
                   float range, float fireRate, float damage, float splash, float power,
-                  int unlockWave) {
+                  int unlockDay) {
             this.id = id; this.kind = kind; this.name = name; this.icon = icon;
-            this.desc = desc; this.color = color; this.cost = cost; this.coreCost = coreCost;
+            this.desc = desc; this.color = color; this.cost = cost;
+            this.woodCost = woodCost; this.stoneCost = stoneCost; this.coreCost = coreCost;
             this.hp = hp; this.hpPerLevel = hpPerLevel; this.blocks = blocks;
             this.maxLevel = maxLevel; this.range = range; this.fireRate = fireRate;
             this.damage = damage; this.splash = splash; this.power = power;
-            this.unlockWave = unlockWave;
+            this.unlockDay = unlockDay;
+        }
+
+        /** Kurulum maliyeti (kaynak türüne göre). */
+        public int costOf(int res) {
+            switch (res) {
+                case R_WOOD: return woodCost;
+                case R_STONE: return stoneCost;
+                case R_SCRAP: return cost;
+                default: return 0;
+            }
+        }
+
+        /** Seviye atlama maliyeti (kaynak türüne göre). */
+        public int upgradeCostOf(int res, int level) {
+            int base = costOf(res);
+            if (base <= 0) return 0;
+            return Math.round(base * (0.75f + 0.62f * level) * (1f + 0.22f * level));
         }
 
         public float hpAt(int level) {
@@ -92,7 +162,7 @@ public final class Balance {
 
         /** Seviye atlama maliyeti (hurda). */
         public int upgradeCost(int level) {
-            return Math.round(cost * (0.75f + 0.62f * level) * (1f + 0.22f * level));
+            return upgradeCostOf(R_SCRAP, level);
         }
 
         /** Seviye atlamak için gereken enerji çekirdeği. */
@@ -108,62 +178,65 @@ public final class Balance {
     }
 
     public static final StructDef[] STRUCTS = new StructDef[]{
+            // id, tür, ad, simge, açıklama, renk,
+            //   hurda, odun, taş, çekirdek, can, can/sv, engel, azamiSv,
+            //   menzil, atış/sn, hasar, alan, enerji, açılışGünü
             new StructDef(S_CORE, KIND_CORE, "Reaktör", "◉",
-                    "Üssünün kalbi. Düşerse her şey biter.",
-                    0x4FC3F7, 0, 0, 4200f, 0.25f, true, 5,
+                    "Kampının kalbi. Düşerse her şey biter.",
+                    0x4FC3F7, 0, 0, 0, 0, 4200f, 0.25f, true, 5,
                     0, 0, 0, 0, 8f, 0),
             new StructDef(S_WALL, KIND_WALL, "Duvar", "▮",
-                    "Zombileri yavaşlatır, yolu kapatır. Ucuz ve vazgeçilmez.",
-                    0x9E9E8A, 18, 1, 340f, 0.85f, true, 5,
+                    "Kestiğin odundan örülür. Zombileri yavaşlatır, yolu kapatır.",
+                    0x9E9E8A, 0, 22, 0, 1, 340f, 0.85f, true, 5,
                     0, 0, 0, 0, 0f, 0),
             new StructDef(S_SPIKE, KIND_TRAP, "Dikenli Tuzak", "✸",
-                    "Üstünden geçen zombilere sürekli hasar verir, onları yavaşlatır.",
-                    0xB0846A, 34, 1, 180f, 0.7f, false, 5,
+                    "Sivriltilmiş kazıklar: üstünden geçeni yaralar ve yavaşlatır.",
+                    0xB0846A, 10, 26, 0, 1, 180f, 0.7f, false, 5,
                     1.6f, 1f, 26f, 0, 0f, 0),
             new StructDef(S_MG, KIND_TURRET, "Makineli Kule", "⌖",
                     "Hızlı ateş eden temel savunma kulesi.",
-                    0x78909C, 95, 1, 260f, 0.6f, true, 5,
+                    0x78909C, 70, 30, 0, 1, 260f, 0.6f, true, 5,
                     13f, 6.5f, 9f, 0, -3f, 0),
             new StructDef(S_CANNON, KIND_TURRET, "Top Kulesi", "◎",
                     "Yavaş ama alan hasarı veren ağır top.",
-                    0x8D6E63, 175, 2, 300f, 0.6f, true, 5,
+                    0x8D6E63, 130, 40, 60, 2, 300f, 0.6f, true, 5,
                     16f, 0.8f, 62f, 3f, -5f, 3),
             new StructDef(S_FLAME, KIND_TURRET, "Alev Kulesi", "▲",
                     "Kısa menzilde koni şeklinde yakar; kalabalığı eritir.",
-                    0xEF6C00, 150, 2, 240f, 0.6f, true, 5,
+                    0xEF6C00, 110, 60, 20, 2, 240f, 0.6f, true, 5,
                     7.5f, 8f, 11f, 0, -4f, 4),
             new StructDef(S_TESLA, KIND_TURRET, "Tesla Kulesi", "⚡",
                     "Zincirleme yıldırım: üç düşmana birden atlar.",
-                    0x4DD0E1, 240, 3, 230f, 0.6f, true, 5,
+                    0x4DD0E1, 190, 30, 70, 3, 230f, 0.6f, true, 5,
                     11f, 1.5f, 30f, 0, -7f, 6),
             new StructDef(S_SNIPER_TOWER, KIND_TURRET, "Nişancı Kulesi", "✦",
                     "Çok uzun menzil, tek hedefe ağır hasar. Kaba zombiler için.",
-                    0x546E7A, 260, 3, 220f, 0.6f, true, 5,
+                    0x546E7A, 200, 80, 60, 3, 220f, 0.6f, true, 5,
                     26f, 0.7f, 120f, 0, -6f, 8),
             new StructDef(S_GENERATOR, KIND_SUPPORT, "Jeneratör", "⚙",
                     "Kulelerin ihtiyaç duyduğu enerjiyi üretir.",
-                    0xFDD835, 130, 1, 280f, 0.6f, true, 5,
+                    0xFDD835, 100, 30, 50, 1, 280f, 0.6f, true, 5,
                     0, 0, 0, 0, 10f, 2),
             new StructDef(S_AMMO, KIND_SUPPORT, "Cephanelik", "▣",
                     "Menzilindeki kuleleri hızlandırır, sen yaklaşınca şarjörünü doldurur.",
-                    0x8BC34A, 120, 1, 240f, 0.6f, true, 5,
+                    0x8BC34A, 90, 60, 0, 1, 240f, 0.6f, true, 5,
                     11f, 0, 0, 0, -1f, 3),
             new StructDef(S_REPAIR, KIND_SUPPORT, "Tamir İstasyonu", "✚",
-                    "Menzildeki yapıları dalga sırasında bile onarır.",
-                    0x26A69A, 165, 2, 250f, 0.6f, true, 5,
+                    "Menzildeki yapıları gece baskını sürerken bile onarır.",
+                    0x26A69A, 140, 50, 40, 2, 250f, 0.6f, true, 5,
                     12f, 0, 7f, 0, -3f, 5),
             new StructDef(S_MED, KIND_SUPPORT, "Tıbbi İstasyon", "✚",
                     "Yakınındayken canını yeniler.",
-                    0xE57373, 140, 1, 220f, 0.6f, true, 5,
+                    0xE57373, 110, 70, 0, 1, 220f, 0.6f, true, 5,
                     9f, 0, 9f, 0, -2f, 4),
-            new StructDef(S_COLLECTOR, KIND_SUPPORT, "Hurda Toplayıcı", "❖",
-                    "Her dalga sonunda fazladan hurda üretir.",
-                    0xFFB74D, 150, 1, 200f, 0.6f, true, 5,
+            new StructDef(S_COLLECTOR, KIND_SUPPORT, "Hurda İşleyici", "❖",
+                    "Çevredeki enkazı işleyip düzenli hurda üretir.",
+                    0xFFB74D, 130, 40, 50, 1, 200f, 0.6f, true, 5,
                     0, 0, 22f, 0, -2f, 2),
             new StructDef(S_BARRACKS, KIND_SUPPORT, "Kışla", "⚑",
                     "Yoldaş alırsın. Her seviye bir yoldaş hakkı ve daha güçlü ekip verir.",
-                    0x8D6E63, 220, 1, 340f, 0.7f, true, 5,
-                    14f, 0, 0, 0, -2f, 1)
+                    0x8D6E63, 120, 140, 40, 1, 320f, 0.7f, true, 4,
+                    0, 0, 0, 0, -1f, 1),
     };
 
     public static StructDef struct(int id) {
@@ -293,33 +366,33 @@ public final class Balance {
         return ZOMBIES[id];
     }
 
-    /** Dalga numarasına göre zombi güç çarpanı. */
-    public static float waveHpScale(int wave) {
-        return 1f + 0.15f * (wave - 1) + 0.009f * (float) Math.pow(wave, 1.85);
+    /**
+     * Hayatta kalınan güne göre zombi güç çarpanı. Dalga sayacı yok; dünya
+     * geçen günlerle birlikte sertleşir.
+     */
+    public static float dayHpScale(int day) {
+        return 1f + 0.16f * (day - 1) + 0.010f * (float) Math.pow(day, 1.85);
     }
 
-    public static float waveDamageScale(int wave) {
-        return 1f + 0.10f * (wave - 1) + 0.004f * (float) Math.pow(wave, 1.7);
+    public static float dayDamageScale(int day) {
+        return 1f + 0.11f * (day - 1) + 0.005f * (float) Math.pow(day, 1.7);
     }
 
-    public static int waveBudget(int wave) {
-        return Math.round(7 + wave * 4.2f + (float) Math.pow(wave, 1.9) * 0.55f);
+    /** Gece baskınında üsse kaç zombi yürür. */
+    public static int raidSize(int day, boolean bloodMoon) {
+        int n = Math.round(4 + day * 2.1f + (float) Math.pow(day, 1.55f) * 0.5f);
+        if (bloodMoon) n = Math.round(n * 2.2f);
+        return Math.min(n, 60);
     }
 
-    public static int waveScrapReward(int wave) {
-        return 45 + wave * 14;
+    /** Her yedinci gece kanlı ay: çok daha kalabalık ve sert bir baskın. */
+    public static boolean isBloodMoon(int day) {
+        return day % 7 == 0;
     }
 
-    public static int waveXpReward(int wave) {
-        return 40 + wave * 18;
-    }
-
-    public static boolean isBossWave(int wave) {
-        return wave % 5 == 0;
-    }
-
-    public static float buildTime(int wave) {
-        return wave <= 1 ? 60f : 38f;
+    /** Geceyi atlatınca kazanılan tecrübe. */
+    public static int nightXpReward(int day) {
+        return 45 + day * 20;
     }
 
     // ---- oyuncu ---------------------------------------------------------

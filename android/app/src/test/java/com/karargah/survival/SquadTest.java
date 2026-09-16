@@ -15,7 +15,6 @@ import com.karargah.survival.game.Npc;
 import com.karargah.survival.game.PathFinder;
 import com.karargah.survival.game.Pickup;
 import com.karargah.survival.game.Structure;
-import com.karargah.survival.game.WaveManager;
 
 import org.junit.Test;
 
@@ -28,15 +27,19 @@ public class SquadTest {
         audio.setEnabled(false);
         GameWorld w = new GameWorld(audio, in);
         w.paused = false;
+        w.spawnRoamers = false;      // testlerde yalnızca kurulan senaryo koşsun
         w.player.scrap = 20000;
+        w.player.wood = 20000;
+        w.player.stone = 20000;
+        w.player.fiber = 20000;
         w.player.cores = 50;
         return w;
     }
 
     private static Npc hire(GameWorld w, InputState in, int role) {
-        int gx = BuildGrid.N / 2 + 5, gz = BuildGrid.N / 2 + 5;
+        int gx = BuildGrid.N / 2 + 3, gz = BuildGrid.N / 2 + 3;
         if (w.barracks() == null) {
-            w.waves.wave = 3;
+            w.dayCount = 3;
             in.push(new Cmd(Cmd.PLACE, Balance.S_BARRACKS, gx, gz));
             w.update(0.016f);
         }
@@ -136,8 +139,8 @@ public class SquadTest {
         assertTrue("ganimet düşmeli", piles > 0);
         assertEquals("yerdeki hurda sayılmalı", 75, w.looseScrap());
 
-        w.onWaveCleared(1);
-        assertEquals("dalga bitince ganimet silinmemeli", piles, w.pickups.size());
+        w.onNightSurvived();
+        assertEquals("gece bitince ganimet silinmemeli", piles, w.pickups.size());
 
         Pickup first = w.pickups.get(0);
         run(w, 120f);               // uzun süre beklese de durmalı
@@ -246,7 +249,8 @@ public class SquadTest {
         int before = w.player.scrap;
         w.player.x = n.x;
         w.player.z = n.z;
-        w.dropLoot(n.x + 9f, n.z + 4f, 60, 0, 2);
+        // Avlunun içine bırak: sur hattına düşen yığına zaten ulaşılamaz.
+        w.dropLoot(n.x - 4f, n.z - 3f, 60, 0, 2);
         in.push(new Cmd(Cmd.ORDER, 0, Balance.STANCE_FOLLOW, 0));
         run(w, 14f);
         assertTrue("toplayıcı ganimeti toplamalı", w.player.scrap > before);
@@ -382,7 +386,10 @@ public class SquadTest {
         InputState in = new InputState();
         GameWorld w = world(in);
         Npc n = hire(w, in, Balance.NPC_ENGINEER);
+        // Kasa tamamen boş: duvar artık odunla örülüyor, hepsini sıfırla.
         w.player.scrap = 0;
+        w.player.wood = 0;
+        w.player.stone = 0;
         int gx = BuildGrid.worldToCell(n.x + 4f), gz = BuildGrid.worldToCell(n.z + 2f);
         in.push(new Cmd(Cmd.PLAN, Balance.S_WALL, gx, gz));
         w.update(0.016f);
@@ -391,6 +398,8 @@ public class SquadTest {
         assertEquals("plan beklemede kalmalı", 1, w.plans.size());
 
         w.addToTreasury(500, 0, true);
+        w.addResource(Balance.R_WOOD, 500, true);
+        w.addResource(Balance.R_STONE, 500, true);
         run(w, 25f);
         assertNotNull("kasa dolunca kurulmalı", w.grid.at(gx, gz));
     }
@@ -450,7 +459,7 @@ public class SquadTest {
         Npc n = hire(w, in, Balance.NPC_ENGINEER);
         n.selfImprove = false;
         w.player.scrap = 6000;
-        w.waves.wave = 4;
+        w.dayCount = 4;
         int before = w.structures.size();
         run(w, 60f);
         assertTrue("mimar plan açmalı ya da yapı kurulmalı",
@@ -467,7 +476,7 @@ public class SquadTest {
         GameWorld w = world(in);
         Npc n = hire(w, in, Balance.NPC_ENGINEER);
         n.selfImprove = false;
-        w.waves.wave = 5;
+        w.dayCount = 5;
         w.player.scrap = 4000;
         // enerji tüketen kuleler ekle
         for (int i = 0; i < 5; i++) {
@@ -494,11 +503,15 @@ public class SquadTest {
         Npc n = hire(w, in, Balance.NPC_ENGINEER);
         n.selfImprove = false;
         w.player.scrap = 6000;
-        w.waves.wave = 3;
+        w.dayCount = 3;
 
-        // sur hattından bir duvarı sök (kapı olmayan bir yerden)
-        int c = BuildGrid.N / 2;
-        Structure gapWall = w.grid.at(c + 3, c - 5);
+        // Sur hattından bir duvarı sök (kapı olmayan bir yerden). Hücreleri
+        // dünya koordinatından çözüyoruz ki sur yarıçapı değişse de test
+        // doğru yeri bulsun.
+        float r = w.baseRadius;
+        int wallGx = BuildGrid.worldToCell(7f);
+        int wallGz = BuildGrid.worldToCell(-r);
+        Structure gapWall = w.grid.at(wallGx, wallGz);
         assertNotNull("sur duvarı olmalı", gapWall);
         int gx = gapWall.gx, gz = gapWall.gz;
         w.grid.clear(gx, gz);
@@ -509,8 +522,9 @@ public class SquadTest {
         boolean filled = w.grid.at(gx, gz) != null || w.planAt(gx, gz) != null;
         assertTrue("sur deliği kapatılmalı", filled);
         // kapı hücreleri (kenar ortası) kapatılmamalı
+        int gateGx = BuildGrid.worldToCell(1f), gateGz = BuildGrid.worldToCell(r);
         assertTrue("kuzey kapısı açık kalmalı",
-                w.grid.at(c, c + 4) == null && w.planAt(c, c + 4) == null);
+                w.grid.at(gateGx, gateGz) == null && w.planAt(gateGx, gateGz) == null);
     }
 
     /** Dalga sırasında yeni şantiye açmaz; ekip savaşır. */
@@ -521,13 +535,13 @@ public class SquadTest {
         Npc n = hire(w, in, Balance.NPC_ENGINEER);
         n.selfImprove = false;
         w.player.scrap = 6000;
-        w.waves.wave = 4;
-        in.push(new Cmd(Cmd.START_WAVE));
+        w.dayCount = 4;
+        w.timeOfDay = 0.80f;                 // gecenin ortası
         run(w, 4f);
-        assertEquals("dalga başlamalı", WaveManager.PHASE_WAVE, w.waves.phase);
+        assertTrue("gece olmalı", w.isNight());
         w.plans.clear();
         run(w, 30f);
-        assertTrue("dalga sırasında otomatik şantiye açmamalı", w.plans.isEmpty());
+        assertTrue("gece otomatik şantiye açmamalı", w.plans.isEmpty());
     }
 
     /** Yapacak yeni iş kalmayınca mevcut yapıları geliştirir. */
@@ -539,7 +553,7 @@ public class SquadTest {
         n.selfImprove = false;
         w.player.scrap = 30000;
         w.player.cores = 50;
-        w.waves.wave = 6;
+        w.dayCount = 6;
         boolean upgraded = false;
         for (int step = 0; step < 40 && !upgraded; step++) {
             run(w, 5f);
@@ -662,8 +676,8 @@ public class SquadTest {
         a.selfImprove = false;
         b.selfImprove = false;
         w.pickups.clear();
-        w.dropLoot(6f, 6f, 20, 0, 1);
-        w.dropLoot(-6f, 6f, 20, 0, 1);
+        w.dropLoot(7f, 7f, 20, 0, 1);
+        w.dropLoot(-7f, 7f, 20, 0, 1);
         assertEquals(2, w.pickups.size());
         a.x = 0f; a.z = 4f;
         b.x = 0f; b.z = 4.5f;
@@ -698,8 +712,8 @@ public class SquadTest {
         Npc n = hire(w, in, Balance.NPC_GUARD);
         n.selfImprove = false;
         n.setStance(Balance.STANCE_AUTO, 0f, 0f);
+        w.timeOfDay = 0.80f;                 // gece baskını sürsün
         w.update(0.016f);
-        in.push(new Cmd(Cmd.START_WAVE));
         run(w, 3f);
 
         float px = n.x, pz = n.z, pdx = 0f, pdz = 0f;

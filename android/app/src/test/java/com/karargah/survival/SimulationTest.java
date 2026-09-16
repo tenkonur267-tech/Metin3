@@ -13,7 +13,6 @@ import com.karargah.survival.game.Cmd;
 import com.karargah.survival.game.GameWorld;
 import com.karargah.survival.game.InputState;
 import com.karargah.survival.game.Structure;
-import com.karargah.survival.game.WaveManager;
 import com.karargah.survival.game.Zombie;
 
 import org.junit.Test;
@@ -34,27 +33,29 @@ public class SimulationTest {
         return w;
     }
 
-    /** Yapay oyuncu: rastgele gezer, ateş eder, hazırlıkta inşa eder. */
+    /** Yapay oyuncu: gezer, ateş eder, gündüz inşa eder ve kaynak toplar. */
     private static void step(GameWorld w, InputState in, int frame, float dt, boolean rich) {
         float t = frame * dt;
         in.moveX = (float) Math.sin(t * 0.7f);
         in.moveZ = (float) Math.cos(t * 0.5f);
         in.firing = true;
-        if (w.waves.isPrepare()) {
+        in.push(new Cmd(Cmd.HARVEST, 1));      // menzilde kaynak varsa toplar
+        if (!w.isNight()) {
             if (frame % 12 == 0) {
                 int type = 1 + MathX.rndInt(Balance.STRUCTS.length - 1);
-                if (w.waves.wave < Balance.struct(type).unlockWave) type = Balance.S_WALL;
+                if (w.dayCount < Balance.struct(type).unlockDay) type = Balance.S_WALL;
                 int gx = BuildGrid.N / 2 - 10 + MathX.rndInt(20);
                 int gz = BuildGrid.N / 2 - 10 + MathX.rndInt(20);
                 in.push(new Cmd(Cmd.PLACE, type, gx, gz));
             }
-            if (w.waves.timer < 18f && frame % 30 == 0) in.push(new Cmd(Cmd.START_WAVE));
         }
         if (frame % 240 == 0 && w.player.skillPoints > 0) {
             in.push(new Cmd(Cmd.SKILL_UP, MathX.rndInt(Balance.SKILL_COUNT)));
         }
         if (rich && frame % 300 == 0) {
             w.player.scrap += 400;
+            w.player.wood += 400;
+            w.player.stone += 400;
             w.player.cores += 1;
             w.player.hp = w.player.maxHp;
         }
@@ -89,38 +90,34 @@ public class SimulationTest {
             step(w, in, f, dt, false);
             if (f % 60 == 0) assertSane(w, f);
         }
-        assertTrue("10 dakikada en az 3 dalga tamamlanmalı, ulaşılan: " + w.waves.wave,
-                w.waves.wave >= 3);
+        assertTrue("10 dakikada gün ilerlemeli, ulaşılan: " + w.dayCount, w.dayCount >= 1);
         assertTrue("zombi öldürülmüş olmalı", w.totalKills > 0);
     }
 
     /**
-     * Dalgaların tıkanmaması: hiçbir dalga makul süreden uzun sürmemeli
-     * (öfke modu kalan zombileri reaktöre yürütür).
+     * Gece baskınları tıkanmamalı: şafak sökerken üsse yürüyen zombilerin
+     * sahada birikip kalmaması, yani her gecenin bitebilmesi gerekir.
      */
     @Test
-    public void dalgalarTikanmaz() {
+    public void geceBaskinlariTikanmaz() {
         InputState in = new InputState();
         GameWorld w = newWorld(in);
         float dt = 1f / 60f;
-        int waveStartFrame = 0;
-        int lastWave = 0;
-        int longest = 0;
+        int nights = 0;
+        boolean wasRaiding = false;
+        int stuckFrames = 0;
         for (int f = 0; f < 72000 && !w.gameOver; f++) {
             step(w, in, f, dt, true);
-            if (w.waves.wave != lastWave) {
-                lastWave = w.waves.wave;
-                waveStartFrame = f;
-            }
-            if (w.waves.phase == WaveManager.PHASE_WAVE) {
-                int elapsed = f - waveStartFrame;
-                longest = Math.max(longest, elapsed);
-                assertTrue("dalga " + w.waves.wave + " " + (elapsed / 60) + " saniyedir bitmiyor",
-                        elapsed < 60 * 220);
-            }
+            if (w.threat.raiding && !wasRaiding) nights++;
+            wasRaiding = w.threat.raiding;
+            // Gündüz vakti üsse yürüyen zombi kalmamalı (baskıncılar temizlenir)
+            if (!w.isNight() && w.threat.liveRaiders > 0) stuckFrames++;
+            else stuckFrames = 0;
+            assertTrue("gündüz " + (stuckFrames / 60) + " saniyedir baskıncı takılı kaldı",
+                    stuckFrames < 60 * 200);
         }
-        assertTrue("uzun koşuda ilerleme olmalı", w.waves.wave >= 6);
-        assertTrue("en uzun dalga makul olmalı: " + (longest / 60) + " sn", longest < 60 * 220);
+        assertTrue("uzun koşuda gece geçmeli, geçen gece: " + nights, nights >= 1);
+        assertTrue("gün ilerlemeli", w.dayCount >= 2);
     }
 
     @Test
@@ -128,9 +125,11 @@ public class SimulationTest {
         InputState in = new InputState();
         GameWorld w = newWorld(in);
         w.player.scrap = 5000;
+        w.player.wood = 5000;
+        w.player.stone = 5000;
         w.player.cores = 20;
         int before = w.structures.size();
-        int gx = BuildGrid.N / 2 + 6, gz = BuildGrid.N / 2 + 6;
+        int gx = BuildGrid.N / 2 + 3, gz = BuildGrid.N / 2 + 3;
         in.push(new Cmd(Cmd.PLACE, Balance.S_MG, gx, gz));
         w.update(0.016f);
         assertEquals("kule kurulmalı", before + 1, w.structures.size());
@@ -168,9 +167,14 @@ public class SimulationTest {
         for (Balance.StructDef d : Balance.STRUCTS) {
             assertNotNull(d.name);
             assertTrue(d.name + ": can pozitif olmalı", d.hp > 0);
-            assertTrue(d.name + ": azami seviye 5", d.maxLevel == 5);
+            assertTrue(d.name + ": azami seviye makul", d.maxLevel >= 3 && d.maxLevel <= 5);
+            // Maliyet artık kaynaklara dağıldığı için toplam üstünden bakılır
+            int up1 = d.upgradeCostOf(Balance.R_SCRAP, 1) + d.upgradeCostOf(Balance.R_WOOD, 1)
+                    + d.upgradeCostOf(Balance.R_STONE, 1);
+            int up2 = d.upgradeCostOf(Balance.R_SCRAP, 2) + d.upgradeCostOf(Balance.R_WOOD, 2)
+                    + d.upgradeCostOf(Balance.R_STONE, 2);
             assertTrue(d.name + ": geliştirme maliyeti artmalı",
-                    d.id == Balance.S_CORE || d.upgradeCost(2) > d.upgradeCost(1));
+                    d.id == Balance.S_CORE || up2 > up1);
             for (int lv = 1; lv <= 5; lv++) {
                 assertTrue(d.name + ": seviye canı artmalı", d.hpAt(lv) >= d.hp);
             }
@@ -180,9 +184,26 @@ public class SimulationTest {
             assertTrue(d.name + ": şarjör pozitif", d.magazine > 0);
             assertTrue(d.name + ": geliştirme hasarı artırmalı", d.damageAt(2) > d.damageAt(1));
         }
-        for (int w = 1; w <= 40; w++) {
-            assertTrue("dalga bütçesi artmalı", Balance.waveBudget(w + 1) > Balance.waveBudget(w));
-            assertTrue("zombi gücü artmalı", Balance.waveHpScale(w + 1) > Balance.waveHpScale(w));
+        for (int d = 1; d <= 40; d++) {
+            assertTrue("gece baskını büyümeli",
+                    Balance.raidSize(d + 1, false) >= Balance.raidSize(d, false));
+            assertTrue("zombi gücü artmalı", Balance.dayHpScale(d + 1) > Balance.dayHpScale(d));
+            // Kanlı ay her zaman en az normal gece kadar kalabalık; başarım
+            // için bir tavan var, orada ikisi de tavana dayanır.
+            assertTrue("kanlı ay daha kalabalık olmalı",
+                    Balance.raidSize(d, true) >= Balance.raidSize(d, false));
+            if (d <= 6) {
+                assertTrue("erken günlerde kanlı ay belirgin olmalı",
+                        Balance.raidSize(d, true) > Balance.raidSize(d, false));
+            }
+        }
+        // Yapı maliyetleri kaynaklara dağılmalı: her yapı bir şey istemeli
+        for (Balance.StructDef d : Balance.STRUCTS) {
+            if (d.id == Balance.S_CORE) continue;
+            assertTrue(d.name + ": bir kaynağa mal olmalı",
+                    d.cost + d.woodCost + d.stoneCost > 0);
+            assertTrue(d.name + ": geliştirme maliyeti artmalı",
+                    d.upgradeCostOf(Balance.R_WOOD, 2) >= d.upgradeCostOf(Balance.R_WOOD, 1));
         }
     }
 }

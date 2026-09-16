@@ -17,13 +17,19 @@ public class WorldRenderer {
     private final float[] bones = new float[Renderer3D.MAX_BONES * 16];
     private final float[] rgb = new float[3];
 
-    // dekor
-    private static final int DECOR = 190;
-    private final float[] decorX = new float[DECOR];
-    private final float[] decorZ = new float[DECOR];
-    private final float[] decorYaw = new float[DECOR];
-    private final float[] decorScale = new float[DECOR];
-    private final int[] decorType = new int[DECOR];
+    /** Zemin parçasının kenar uzunluğu (birim). */
+    public static final float CHUNK = 32f;
+    /** Oyuncunun çevresinde çizilen parça yarıçapı (parça sayısı). */
+    private static final int CHUNK_VIEW = 5;
+    /** Bitki/kaya serpme ızgarasının adımı. */
+    private static final float PROP_STEP = Harvest.STEP;
+    /** Süs nesnelerinin çizildiği azami uzaklık. */
+    private static final float PROP_RANGE = 78f;
+    /** Şehir binalarının çizildiği azami uzaklık. */
+    private static final float CITY_RANGE = 150f;
+
+    private final float[] cityTmp = new float[3];
+    private final float[] buildTmp = new float[5];
 
     public Renderer3D renderer() {
         return r;
@@ -36,24 +42,10 @@ public class WorldRenderer {
     public void init() {
         r.init();
         models.build();
-        buildDecor();
     }
 
     public void resize(int w, int h) {
         r.resize(w, h);
-    }
-
-    private void buildDecor() {
-        for (int i = 0; i < DECOR; i++) {
-            float a = MathX.rnd(0f, MathX.TAU);
-            float rad = MathX.rnd(Balance.BUILD_RADIUS + 2.5f, Balance.WORLD_HALF - 2f);
-            decorX[i] = (float) Math.cos(a) * rad;
-            decorZ[i] = (float) Math.sin(a) * rad;
-            decorYaw[i] = MathX.rnd(0f, MathX.TAU);
-            decorScale[i] = MathX.rnd(0.7f, 1.5f);
-            float roll = MathX.rnd();
-            decorType[i] = roll < 0.34f ? 0 : (roll < 0.62f ? 1 : (roll < 0.78f ? 2 : (roll < 0.9f ? 3 : 4)));
-        }
     }
 
     // ---- ana çizim ------------------------------------------------------
@@ -63,9 +55,9 @@ public class WorldRenderer {
         r.beginFrame(w.camera);
         r.drawSky();
 
-        drawGround();
+        drawGround(w);
+        drawCity(w);
         drawDecor(w);
-        drawPortals(w);
         drawStructures(w, buildMode);
         drawZombies(w);
         drawNpcs(w);
@@ -122,38 +114,108 @@ public class WorldRenderer {
         r.skyHorB = MathX.lerp(0.74f, 0.10f, n);
     }
 
-    private void drawGround() {
-        M4.setIdentity(model);
-        r.draw(models.ground, model, 1f, 1f, 1f, 1f);
+    /**
+     * Zemin, oyuncunun çevresindeki parçalar hâlinde çizilir. Her parça biyom
+     * rengiyle boyanır; böylece 100.000 birimlik dünya için tek bir dev ağ
+     * tutmaya gerek kalmaz.
+     */
+    private void drawGround(GameWorld w) {
+        int c0x = (int) Math.floor(r.camX / CHUNK);
+        int c0z = (int) Math.floor(r.camZ / CHUNK);
+        for (int cz = c0z - CHUNK_VIEW; cz <= c0z + CHUNK_VIEW; cz++) {
+            for (int cx = c0x - CHUNK_VIEW; cx <= c0x + CHUNK_VIEW; cx++) {
+                float wx = (cx + 0.5f) * CHUNK, wz = (cz + 0.5f) * CHUNK;
+                if (!visible(w, wx, wz, CHUNK * 0.75f)) continue;
+                int col = WorldGen.groundColor(WorldGen.biomeAt(wx, wz));
+                // Aynı biyomda bile parçadan parçaya hafif ton farkı
+                float shade = 0.86f + WorldGen.rand01(cx, cz, 909) * 0.26f;
+                MathX.colorToRgb(col, rgb);
+                M4.trs(model, wx, 0f, wz, 0f, 1f);
+                r.draw(models.groundTile, model,
+                        rgb[0] * shade, rgb[1] * shade, rgb[2] * shade, 1f);
+            }
+        }
+        // Kamp zemini sur hattıyla birlikte büyür.
+        float pad = (w.baseRadius + 3f) / Balance.BUILD_RADIUS;
+        M4.trs(model, 0f, 0f, 0f, 0f, pad, 1f, pad);
         r.setDepthOffset(-1f, -2f);
         r.draw(models.basePlatform, model, 1f, 1f, 1f, 1f);
         r.setDepthOffset(0f, 0f);
     }
 
-    private void drawDecor(GameWorld w) {
-        for (int i = 0; i < DECOR; i++) {
-            if (!visible(w, decorX[i], decorZ[i], 3f)) continue;
-            Mesh m;
-            switch (decorType[i]) {
-                case 0: m = models.rock; break;
-                case 1: m = models.deadTree; break;
-                case 2: m = models.grassTuft; break;
-                case 3: m = models.barrel; break;
-                default: m = models.crate; break;
+    /** Şehirlerin binaları: adalara göre deterministik, hiç saklanmaz. */
+    private void drawCity(GameWorld w) {
+        float d = WorldGen.nearestCity(r.camX, r.camZ, cityTmp);
+        if (d < 0f || d > cityTmp[2] + CITY_RANGE) return;
+        float cx = cityTmp[0], cz = cityTmp[1];
+        int b0x = (int) Math.floor((r.camX - CITY_RANGE - cx) / 30f);
+        int b1x = (int) Math.floor((r.camX + CITY_RANGE - cx) / 30f);
+        int b0z = (int) Math.floor((r.camZ - CITY_RANGE - cz) / 30f);
+        int b1z = (int) Math.floor((r.camZ + CITY_RANGE - cz) / 30f);
+        for (int bz = b0z; bz <= b1z; bz++) {
+            for (int bx = b0x; bx <= b1x; bx++) {
+                // Ada şehrin sınırları içinde mi?
+                float ox = cx + (bx + 0.5f) * 30f, oz = cz + (bz + 0.5f) * 30f;
+                if (MathX.dist(ox, oz, cx, cz) > cityTmp[2]) continue;
+                if (!WorldGen.blockBuilding(cityTmp, bx, bz, buildTmp)) continue;
+                if (!visible(w, buildTmp[0], buildTmp[1], Math.max(buildTmp[2], buildTmp[3]))) {
+                    continue;
+                }
+                float tone = 0.55f + WorldGen.rand01(bx, bz, 910) * 0.5f;
+                M4.trs(model, buildTmp[0], 0f, buildTmp[1], 0f,
+                        buildTmp[2] * 2f, buildTmp[4], buildTmp[3] * 2f);
+                r.draw(models.cityBuilding, model, tone * 0.82f, tone * 0.8f, tone * 0.76f, 1f);
             }
-            M4.trs(model, decorX[i], 0f, decorZ[i], decorYaw[i], decorScale[i]);
-            r.draw(m, model, 1f, 1f, 1f, 1f);
         }
     }
 
-    private void drawPortals(GameWorld w) {
-        for (int i = 0; i < WaveManager.MAX_SPAWN_POINTS; i++) {
-            float glow = w.waves.spawnGlow[i];
-            if (!visible(w, w.waves.spawnX[i], w.waves.spawnZ[i], 4f)) continue;
-            M4.trs(model, w.waves.spawnX[i], 0f, w.waves.spawnZ[i], 0f, 1f);
-            r.draw(models.portal, model, 1f, 0.75f + glow * 0.25f, 0.75f, 1f, glow * 0.55f);
+    /**
+     * Kaya, ağaç, ot ve varil gibi süsler dünyada saklanmaz: oyuncunun
+     * çevresindeki serpme noktaları koordinatlarından hesaplanır, dolayısıyla
+     * aynı yere dönüldüğünde aynı manzara karşılar.
+     */
+    private void drawDecor(GameWorld w) {
+        int p0x = (int) Math.floor((r.camX - PROP_RANGE) / PROP_STEP);
+        int p1x = (int) Math.floor((r.camX + PROP_RANGE) / PROP_STEP);
+        int p0z = (int) Math.floor((r.camZ - PROP_RANGE) / PROP_STEP);
+        int p1z = (int) Math.floor((r.camZ + PROP_RANGE) / PROP_STEP);
+        for (int pz = p0z; pz <= p1z; pz++) {
+            for (int px = p0x; px <= p1x; px++) {
+                float jx = (WorldGen.rand01(px, pz, 501) - 0.5f) * PROP_STEP * 0.85f;
+                float jz = (WorldGen.rand01(px, pz, 502) - 0.5f) * PROP_STEP * 0.85f;
+                float x = (px + 0.5f) * PROP_STEP + jx;
+                float z = (pz + 0.5f) * PROP_STEP + jz;
+                // Kampın içi boş kalır; dışarısı ormandır.
+                if (MathX.len(x, z) < Harvest.campClear(w)) continue;
+                if (WorldGen.blocked(x, z, 1f)) continue;
+                if (!visible(w, x, z, 3f)) continue;
+                int type = WorldGen.propAt(px, pz, x, z);
+                if (type == WorldGen.PROP_NONE) continue;
+                // Kesilmiş/kırılmış düğüm: yerinde kütük kalır, zamanla geri gelir
+                boolean gone = w.isDepleted(Harvest.key(px, pz));
+                float yaw = WorldGen.rand01(px, pz, 503) * MathX.TAU;
+                float scale = 0.7f + WorldGen.rand01(px, pz, 504) * 0.8f;
+                if (gone) {
+                    if (type == WorldGen.PROP_GRASS) continue;    // çalı iz bırakmaz
+                    M4.trs(model, x, 0f, z, yaw, scale * 0.42f, scale * 0.2f, scale * 0.42f);
+                    r.draw(type == WorldGen.PROP_TREE ? models.deadTree : models.rock,
+                            model, 0.55f, 0.48f, 0.4f, 1f);
+                    continue;
+                }
+                Mesh m;
+                switch (type) {
+                    case WorldGen.PROP_ROCK: m = models.rock; break;
+                    case WorldGen.PROP_TREE: m = models.deadTree; break;
+                    case WorldGen.PROP_GRASS: m = models.grassTuft; break;
+                    case WorldGen.PROP_BARREL: m = models.barrel; break;
+                    default: m = models.crate; break;
+                }
+                M4.trs(model, x, 0f, z, yaw, scale);
+                r.draw(m, model, 1f, 1f, 1f, 1f);
+            }
         }
     }
+
 
     // ---- yapılar --------------------------------------------------------
 
@@ -455,6 +517,10 @@ public class WorldRenderer {
             M4.trs(model, p.x, bobY, p.z, p.spin, ps);
             if (core) {
                 r.draw(models.corePickup, model, 1f, 1f, 1f, 1f, 1.1f + p.magnet);
+            } else if (p.kind == Pickup.FOOD) {
+                r.draw(models.crate, model, 0.55f, 1.05f, 0.45f, 1f, 0.3f + p.magnet * 0.6f);
+            } else if (p.kind == Pickup.WATER) {
+                r.draw(models.barrel, model, 0.4f, 0.85f, 1.15f, 1f, 0.35f + p.magnet * 0.6f);
             } else {
                 r.draw(models.scrapPickup, model, 1f, 1f, 1f, 1f, 0.25f + p.magnet * 0.8f);
             }
@@ -522,8 +588,19 @@ public class WorldRenderer {
     // ---- inşa arayüzü ---------------------------------------------------
 
     private void drawBuildOverlay(GameWorld w) {
-        M4.setIdentity(model);
-        r.draw(models.gridOverlay, model, 0.55f, 0.75f, 1f, 0.16f, 0.5f);
+        // Izgara artık tek dev ağ değil: yalnızca oyuncunun çevresindeki
+        // hücreler için çerçeve çiziliyor (inşa alanı 110 birim yarıçapında).
+        int pgx = BuildGrid.worldToCell(r.camX), pgz = BuildGrid.worldToCell(r.camZ);
+        int span = 16;
+        for (int gz = pgz - span; gz <= pgz + span; gz++) {
+            for (int gx = pgx - span; gx <= pgx + span; gx++) {
+                if (!BuildGrid.inBounds(gx, gz) || !BuildGrid.inBuildArea(gx, gz)) continue;
+                float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
+                if (!visible(w, cx, cz, 1.5f)) continue;
+                M4.trs(model, cx, 0f, cz, 0f, 1f);
+                r.draw(models.gridCell, model, 0.55f, 0.75f, 1f, 0.16f, 0.5f);
+            }
+        }
 
         int gx = w.input.hoverGx, gz = w.input.hoverGz;
         if (gx < 0 || gz < 0) return;
@@ -531,7 +608,7 @@ public class WorldRenderer {
         int type = w.input.buildType;
         Balance.StructDef d = Balance.struct(type);
         boolean affordable = w.player.scrap >= w.player.buildCost(d.cost)
-                && w.waves.wave >= d.unlockWave;
+                && w.dayCount >= d.unlockDay;
         boolean ok = code == BuildGrid.OK && affordable;
         float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
 
@@ -572,7 +649,7 @@ public class WorldRenderer {
     private boolean visible(GameWorld w, float x, float z, float radius) {
         float dx = x - r.camX, dz = z - r.camZ;
         float d2 = dx * dx + dz * dz;
-        if (d2 > 115f * 115f) return false;
+        if (d2 > 170f * 170f) return false;
         float d = (float) Math.sqrt(d2);
         if (d < radius + 6f) return true;
         float fx = w.camera.focusX - r.camX, fz = w.camera.focusZ - r.camZ;

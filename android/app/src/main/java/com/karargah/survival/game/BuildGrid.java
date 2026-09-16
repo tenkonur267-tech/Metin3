@@ -8,12 +8,13 @@ public class BuildGrid {
 
     private final Structure[] cells = new Structure[N * N];
 
+    /** Dünya koordinatı -> üs ızgarası hücresi (üs bölgesi dışı sınır dışıdır). */
     public static int worldToCell(float w) {
-        return (int) Math.floor((w + Balance.WORLD_HALF) / Balance.CELL);
+        return (int) Math.floor((w + Balance.BASE_HALF) / Balance.CELL);
     }
 
     public static float cellToWorld(int c) {
-        return c * Balance.CELL - Balance.WORLD_HALF + Balance.CELL * 0.5f;
+        return c * Balance.CELL - Balance.BASE_HALF + Balance.CELL * 0.5f;
     }
 
     public static boolean inBounds(int gx, int gz) {

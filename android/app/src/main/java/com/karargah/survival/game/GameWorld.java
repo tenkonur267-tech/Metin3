@@ -16,7 +16,8 @@ public class GameWorld {
     public final Player player = new Player();
     public final BuildGrid grid = new BuildGrid();
     public final FlowField flow = new FlowField();
-    public final WaveManager waves = new WaveManager();
+    /** Dalga yöneticisi kaldırıldı; tehdit artık geceye ve güne bağlı. */
+    public final Threat threat = new Threat();
     public final Camera camera = new Camera();
     public final Particles particles = new Particles(1600);
     public final Audio audio;
@@ -34,6 +35,11 @@ public class GameWorld {
     private final BuildPlan[] planCells = new BuildPlan[Balance.GRID * Balance.GRID];
     /** Yıkılan yapılar için kendiliğinden plan açılsın mı? */
     public boolean autoRebuild = true;
+    /**
+     * Sur hattının güncel yarıçapı (Chebyshev, birim). Üsse yer kalmayınca
+     * mimar bunu büyütür; sur, kule kuşağı ve tuzak bandı buna göre kayar.
+     */
+    public float baseRadius = BaseLayout.START_RADIUS;
     /** Ortak kasaya kimin ne kadar kattığı (arayüzde gösterilir). */
     public int scrapFromNpcs, scrapFromPlayer;
     public final PathFinder pathFinder = new PathFinder();
@@ -59,7 +65,33 @@ public class GameWorld {
     public int waveRecord;
     public int totalKills;
     public float playTime;
-    public float nightFactor;      // 0 = gündüz (hazırlık), 1 = gece (dalga)
+    public float nightFactor;      // 0 = gündüz, 1 = gece
+    /** Gün döngüsündeki an: 0 = gün doğumu, 0.5 = öğleden sonra, 0.75 = akşam. */
+    public float timeOfDay = 0.12f;
+    public int dayCount = 1;
+    /** Oyuncunun bulunduğu biyom (arayüzde gösterilir, her karede tazelenir). */
+    public int biome;
+    /**
+     * Dünyanın kendi başıboş zombileri doğsun mu? Testlerde ve kontrollü
+     * senaryolarda kapatılabilir; normal oyunda her zaman açıktır.
+     */
+    public boolean spawnRoamers = true;
+    private float roamTimer;
+    private float biomeTimer;
+    private float lootTimer;
+    /**
+     * Tüketilmiş kaynak düğümleri: anahtar -> yeniden büyümeye kalan saniye.
+     * Dünyadaki milyonlarca ağaçtan yalnızca kesilenler burada durur.
+     */
+    private final java.util.HashMap<Long, Float> depleted = new java.util.HashMap<>();
+    /** Oyuncunun o an topladığı düğüm (yoksa prop = -1). */
+    public final float[] harvestNode = new float[]{0f, 0f, -1f, 0f, 0f};
+    /** Toplama ilerlemesi 0..1. */
+    public float harvestProgress;
+    /** Oyuncu toplama emrini verdi mi? */
+    public boolean harvesting;
+    /** Yağmalanan ada sayısı (aynı bina iki kez yağmalanmasın). */
+    private final java.util.HashSet<Long> lootedBlocks = new java.util.HashSet<>();
 
     public final Advisor advisor = new Advisor();
     public final BasePlanner planner = new BasePlanner();
@@ -97,7 +129,7 @@ public class GameWorld {
         grid.clearAll();
         particles.clear();
         player.resetForNewGame();
-        waves.reset();
+        threat.reset();
         gameOver = false;
         paused = false;
         started = false;
@@ -108,28 +140,29 @@ public class GameWorld {
         structuresLost = 0;
         scrapEarned = 0;
         nightFactor = 0f;
+        timeOfDay = 0.12f;
+        dayCount = 1;
+        roamTimer = 0f;
+        lootTimer = 0f;
+        lootedBlocks.clear();
+        depleted.clear();
+        harvestNode[2] = -1f;
+        harvestProgress = 0f;
+        harvesting = false;
+        java.util.Arrays.fill(harvested, 0);
+        biome = WorldGen.B_PLAIN;
         planner.reset();
         advisor.reset();
 
+        baseRadius = BaseLayout.START_RADIUS;
         createCore();
-        // Başlangıç sur hattı. Her kenarın ortasında iki hücrelik kapı var:
-        // hem oyuncu/yoldaşlar girip çıkabiliyor hem de zombiler kapılara
-        // yönlendiği için kuleleri oraya dizmek işe yarıyor.
+        // Başlangıç sur hattı BaseLayout'a göre örülür: reaktörün etrafında
+        // nefes alacak avlu kalır ve her kenarın ortasında geniş bir kapı olur.
+        buildWallRing(baseRadius);
         int c = BuildGrid.N / 2;
-        for (int i = -4; i <= 4; i++) {
-            if (i != 0 && i != 1) {
-                placeFree(Balance.S_WALL, c + i, c - 5);
-                placeFree(Balance.S_WALL, c + i, c + 4);
-            }
-        }
-        for (int i = -4; i <= 3; i++) {
-            if (i != -1 && i != 0) {
-                placeFree(Balance.S_WALL, c - 5, c + i);
-                placeFree(Balance.S_WALL, c + 4, c + i);
-            }
-        }
-        placeFree(Balance.S_MG, c - 3, c - 3);
-        placeFree(Balance.S_MG, c + 2, c + 2);
+        // Başlangıç kuleleri kule kuşağına, köşegenin dışına dizilir.
+        placeFree(Balance.S_MG, c - 5, c + 4);
+        placeFree(Balance.S_MG, c + 4, c - 5);
 
         player.x = 0f;
         player.z = 7f;
@@ -210,8 +243,20 @@ public class GameWorld {
         if (messageTimer > 0f) messageTimer -= dt;
         if (bigMessageTimer > 0f) bigMessageTimer -= dt;
 
-        float targetNight = waves.phase == WaveManager.PHASE_WAVE ? 1f : 0f;
-        nightFactor = MathX.damp(nightFactor, targetNight, 0.55f, dt);
+        // --- gün/gece saati ---
+        timeOfDay += dt / Balance.DAY_LENGTH;
+        while (timeOfDay >= 1f) {
+            timeOfDay -= 1f;
+            dayCount++;
+            big(dayCount + ". gün başladı", 2.2f);
+        }
+        nightFactor = MathX.damp(nightFactor, clockNight(), 0.55f, dt);
+
+        biomeTimer -= dt;
+        if (biomeTimer <= 0f) {
+            biomeTimer = 0.5f;
+            biome = WorldGen.biomeAt(player.x, player.z);
+        }
 
         float inX = input.moveX;
         float inZ = input.moveZ;
@@ -225,6 +270,9 @@ public class GameWorld {
 
         player.update(this, dt, wx, wz, firing);
 
+        updateRoamers(dt);
+        updateCityLoot(dt);
+        updateHarvest(dt);
         updateZombies(dt);
         separateZombies();
         updateNpcs(dt);
@@ -234,7 +282,7 @@ public class GameWorld {
         updatePlans(dt);
         updateEffects(dt);
         particles.update(dt);
-        waves.update(this, dt);
+        threat.update(this, dt);
 
         flowTimer -= dt;
         if (flowDirty && flowTimer <= 0f) {
@@ -251,7 +299,7 @@ public class GameWorld {
         statTimer += dt;
         if (statTimer > 1f) {
             statTimer = 0f;
-            if (waves.phase == WaveManager.PHASE_WAVE && !zombies.isEmpty() && MathX.chance(0.35f)) {
+            if (threat.raiding && !zombies.isEmpty() && MathX.chance(0.35f)) {
                 Zombie z = zombies.get(MathX.rndInt(zombies.size()));
                 audio.playGrowl(z.x, z.z);
             }
@@ -296,6 +344,8 @@ public class GameWorld {
                 case Cmd.CANCEL_PLAN: cancelPlanAt(c.b, c.c); break;
                 case Cmd.CANCEL_ALL_PLANS: cancelAllPlans(); break;
                 case Cmd.SELF_IMPROVE: toggleSelfImprove(c.a); break;
+                case Cmd.HARVEST: harvesting = c.a != 0; break;
+                case Cmd.UPGRADE_TOOL: upgradeTool(c.a); break;
                 case Cmd.TOGGLE_AUTOBUILD:
                     autoRebuild = !autoRebuild;
                     message(autoRebuild
@@ -303,7 +353,6 @@ public class GameWorld {
                             : "Otomatik inşaat kapalı: planları sen bırakacaksın", 2.4f);
                     break;
                 case Cmd.CLEAR_ADVICE: advisor.tipTimer = 0f; break;
-                case Cmd.START_WAVE: waves.skipPrepare(); break;
                 case Cmd.SKILL_UP: doSkillUp(c.a); break;
                 case Cmd.WEAPON_UP: upgradeWeapon(c.a); break;
                 case Cmd.BUY_WEAPON: buyWeapon(c.a); break;
@@ -361,7 +410,7 @@ public class GameWorld {
         } else {
             zb = new Zombie();
         }
-        zb.init(type, x, z, waves.wave, elite);
+        zb.init(type, x, z, dayCount, elite);
         zombies.add(zb);
         particles.dust(x, 0.1f, z, 8);
     }
@@ -372,7 +421,13 @@ public class GameWorld {
         particles.blood(z.x, z.centerY(), z.z, z.lastDamageDirX, z.lastDamageDirZ, z.isBoss() ? 34 : 14);
         audio.playZombieDie(z.isBoss());
         int scrap = Math.round(z.scrapValue * player.scrapBonus());
-        dropLoot(z.x, z.z, scrap, z.isBoss() ? 2 + waves.wave / 10 : 0, z.isBoss() ? 5 : 2);
+        dropLoot(z.x, z.z, scrap, z.isBoss() ? 2 + dayCount / 10 : 0, z.isBoss() ? 5 : 2);
+        // Zombilerin üstünden ara sıra konserve ya da matara çıkar.
+        if (MathX.chance(z.isBoss() ? 1f : 0.14f)) {
+            boolean water = MathX.chance(0.5f);
+            spawnPickup(water ? Pickup.WATER : Pickup.FOOD,
+                    water ? Balance.WATER_RESTORE : Balance.FOOD_RESTORE, z.x, z.z);
+        }
         player.addXp(z.xpValue, this);
         if (player.lifesteal() > 0f) player.heal(player.lifesteal());
         if (z.isBoss()) {
@@ -392,6 +447,70 @@ public class GameWorld {
 
     public int cores() {
         return player.cores;
+    }
+
+    public int wood() {
+        return player.wood;
+    }
+
+    public int stone() {
+        return player.stone;
+    }
+
+    public int fiber() {
+        return player.fiber;
+    }
+
+    /** Yapının kurulumu için gereken bütün kaynaklar kasada var mı? */
+    public boolean canBuild(Balance.StructDef d) {
+        return player.scrap >= player.buildCost(d.cost)
+                && player.wood >= player.buildCost(d.woodCost)
+                && player.stone >= player.buildCost(d.stoneCost);
+    }
+
+    /** Yapının geliştirilmesi için gereken kaynaklar var mı? */
+    public boolean canUpgrade(Balance.StructDef d, int level) {
+        return player.scrap >= player.buildCost(d.upgradeCostOf(Balance.R_SCRAP, level))
+                && player.wood >= player.buildCost(d.upgradeCostOf(Balance.R_WOOD, level))
+                && player.stone >= player.buildCost(d.upgradeCostOf(Balance.R_STONE, level))
+                && player.cores >= d.upgradeCores(level);
+    }
+
+    /** Eksik olan ilk kaynağın adı (arayüz mesajı için); hepsi varsa null. */
+    public String missingFor(Balance.StructDef d) {
+        if (player.scrap < player.buildCost(d.cost)) return "hurda";
+        if (player.wood < player.buildCost(d.woodCost)) return "odun";
+        if (player.stone < player.buildCost(d.stoneCost)) return "taş";
+        return null;
+    }
+
+    /** Kurulum maliyetini kasadan düşer. */
+    public void payBuild(Balance.StructDef d) {
+        player.scrap -= player.buildCost(d.cost);
+        player.wood -= player.buildCost(d.woodCost);
+        player.stone -= player.buildCost(d.stoneCost);
+    }
+
+    /** Geliştirme maliyetini kasadan düşer. */
+    public void payUpgrade(Balance.StructDef d, int level) {
+        player.scrap -= player.buildCost(d.upgradeCostOf(Balance.R_SCRAP, level));
+        player.wood -= player.buildCost(d.upgradeCostOf(Balance.R_WOOD, level));
+        player.stone -= player.buildCost(d.upgradeCostOf(Balance.R_STONE, level));
+        player.cores -= d.upgradeCores(level);
+    }
+
+    /** Oyun boyunca hangi kaynaktan ne kadar toplandı (istatistik). */
+    public final int[] harvested = new int[Balance.R_COUNT];
+
+    /** Toplanan kaynağı ortak kasaya ekler. */
+    public void addResource(int kind, int amount, boolean fromNpc) {
+        if (amount <= 0) return;
+        player.addRes(kind, amount);
+        harvested[kind] += amount;
+        if (kind != Balance.R_SCRAP) return;
+        scrapEarned += amount;
+        if (fromNpc) scrapFromNpcs += amount;
+        else scrapFromPlayer += amount;
     }
 
     public boolean canAfford(int amount) {
@@ -435,8 +554,8 @@ public class GameWorld {
         if (planAt(gx, gz) != null) return false;
         if (plans.size() >= 60) return false;
         Balance.StructDef d = Balance.struct(type);
-        if (waves.wave < d.unlockWave) {
-            if (!auto) message(d.name + " " + d.unlockWave + ". dalgada açılır", 2f);
+        if (dayCount < d.unlockDay) {
+            if (!auto) message(d.name + " " + d.unlockDay + ". günde açılır", 2f);
             return false;
         }
         BuildPlan created = new BuildPlan(type, gx, gz, input.buildRotation, auto);
@@ -506,20 +625,27 @@ public class GameWorld {
     public boolean workOnPlan(Npc n, BuildPlan p, float dt, float workRate) {
         if (!p.alive) return false;
         if (!p.paid) {
-            int cost = p.cost(this);
-            if (p.isUpgrade() && p.upgradeTarget.def().upgradeCores(p.upgradeTarget.level) > cores()) {
-                return false;
-            }
-            if (!spendScrap(cost)) {
+            // Şantiye bütün kaynakları kasadan öder: odun, taş ve hurda.
+            Balance.StructDef d = p.def();
+            boolean upgrade = p.isUpgrade();
+            int level = upgrade ? p.upgradeTarget.level : 0;
+            boolean afford = upgrade ? canUpgrade(d, level) : canBuild(d);
+            if (!afford) {
                 if (!p.waiting) {
                     p.waiting = true;
-                    npcSays(n, "Kasada hurda yok, " + p.def().name + " bekliyor.");
+                    String need = upgrade ? upgradeCostText(d, level) : costText(d);
+                    npcSays(n, "Kasada malzeme yok (" + need + "), "
+                            + d.name + " bekliyor.");
                 }
                 return false;
             }
+            if (upgrade) payUpgrade(d, level);
+            else payBuild(d);
             p.paid = true;
             p.waiting = false;
-            addText(p.x, 1.5f, p.z, "-" + cost, 0xFFAB91, 0.8f, 0.8f);
+            addText(p.x, 1.5f, p.z,
+                    upgrade ? upgradeCostText(d, level) : costText(d),
+                    0xFFAB91, 0.8f, 0.8f);
         }
         p.progress += workRate * dt;
         if (MathX.chance(dt * 6f)) {
@@ -539,8 +665,7 @@ public class GameWorld {
         if (p.isUpgrade()) {
             Structure s = p.upgradeTarget;
             if (s.alive && s.level < s.def().maxLevel) {
-                int cores = s.def().upgradeCores(s.level);
-                if (cores > 0) player.cores = Math.max(0, player.cores - cores);
+                // Çekirdek bedeli şantiye ödenirken alındı, burada tekrar alınmaz.
                 s.level++;
                 float frac = s.hpFraction();
                 s.maxHp = s.def().hpAt(s.level) * player.structHpBonus();
@@ -578,6 +703,9 @@ public class GameWorld {
             }
         }
         if (!hasBuilder) return;
+        // Üs büyüdüyse terk edilmiş iç sur hattı yeniden örülmez; yoksa mimar
+        // aynı çizgiyi sonsuza kadar yenileyip durur.
+        if (s.type == Balance.S_WALL && !BaseLayout.isWallRing(s.x, s.z, baseRadius)) return;
         addPlan(s.type, s.gx, s.gz, true);
     }
 
@@ -884,7 +1012,7 @@ public class GameWorld {
                 tx = player.x;
                 tz = player.z;
                 arrive = 2.5f;
-            } else if (waves.phase == WaveManager.PHASE_WAVE) {
+            } else if (threat.raiding) {
                 // 4) Zombilerin en yoğun geldiği yöne, savunma halkasına geç
                 float sx = 0f, sz = 0f;
                 int count = 0;
@@ -973,8 +1101,19 @@ public class GameWorld {
         return best;
     }
 
+    /**
+     * Bu noktada tehlike var mı? Ganimet seçerken kullanılır, bu yüzden henüz
+     * doğmakta olan zombiyi de sayar: yoldaş oraya varana kadar o zombi çoktan
+     * ayağa kalkmış olur.
+     */
     public boolean zombieNear(float x, float z, float range) {
-        return nearestZombie(x, z, range) != null;
+        float r2 = range * range;
+        for (int i = 0; i < zombies.size(); i++) {
+            Zombie zz = zombies.get(i);
+            if (!zz.alive) continue;
+            if (MathX.dist2(x, z, zz.x, zz.z) < r2) return true;
+        }
+        return false;
     }
 
     /**
@@ -986,7 +1125,7 @@ public class GameWorld {
         float bestD = range * range;
         for (int i = 0; i < pickups.size(); i++) {
             Pickup p = pickups.get(i);
-            if (!p.grabbable()) continue;
+            if (!p.grabbable() || p.playerOnly() || p.unreachable > 0f) continue;
             if (p.claimedBy != null && p.claimedBy != n
                     && p.claimedBy.alive && !p.claimedBy.downed) {
                 continue;
@@ -1048,6 +1187,391 @@ public class GameWorld {
         return found ? allyPos : null;
     }
 
+    // ---- gün döngüsü ve açık dünya zombileri ---------------------------
+
+    /**
+     * Saate göre karanlık miktarı (0..1). Gün t=0'da sabahın ortasında başlar,
+     * böylece gece gün sınırını kesmez ve şafak tek parça olur:
+     *
+     * <pre>
+     *   0.00 - 0.55  gündüz
+     *   0.55 - 0.65  gün batımı (aydınlıktan karanlığa)
+     *   0.65 - 0.90  gece
+     *   0.90 - 1.00  şafak (karanlıktan aydınlığa)
+     * </pre>
+     */
+    public float clockNight() {
+        float t = timeOfDay;
+        if (t < DUSK) return 0f;
+        if (t < 0.65f) return (t - DUSK) / (0.65f - DUSK);
+        if (t < DAWN) return 1f;
+        return 1f - (t - DAWN) / (1f - DAWN);
+    }
+
+    /** Gece mi (dalga tetikleme ve arayüz için)? */
+    public boolean isNight() {
+        return clockNight() > 0.55f;
+    }
+
+    /** Gün batımı ile şafak arası: gece baskınlarının penceresi. */
+    public static final float DUSK = 0.55f;
+    public static final float DAWN = 0.90f;
+
+    /** Şu an akşam/gece penceresinde miyiz? */
+    public boolean duskReached() {
+        return timeOfDay >= DUSK && timeOfDay < DAWN;
+    }
+
+    /**
+     * Bir sonraki gün batımına kalan saniye. Akşam çoktan girdiyse 0 döner ki
+     * geri sayım eksiye düşüp bir sonraki güne atlamasın.
+     */
+    public float timeUntilDusk() {
+        if (duskReached()) return 0f;
+        float t = timeOfDay < DUSK ? DUSK - timeOfDay : 1f - timeOfDay + DUSK;
+        return t * Balance.DAY_LENGTH;
+    }
+
+    /**
+     * Saatin "HH:MM" gösterimi. Gün t=0'da sabah 06:00'da başlar; böylece
+     * gün batımı akşama, şafak da sabaha denk gelir.
+     */
+    public String clockText() {
+        int minutes = (int) ((timeOfDay * 24f + 6f) * 60f);
+        return String.format(java.util.Locale.US, "%02d:%02d", (minutes / 60) % 24, minutes % 60);
+    }
+
+    /**
+     * Oyuncunun çevresinde dünyanın kendi zombilerini akıtır: yoğunluğa göre
+     * doğurur, çok uzakta kalanları siler. Dalga zombilerine dokunmaz.
+     */
+    private void updateRoamers(float dt) {
+        float keep = Balance.ACTIVE_RADIUS * 1.7f;
+        int roamers = 0;
+        for (int i = 0; i < zombies.size(); i++) {
+            Zombie zb = zombies.get(i);
+            if (!zb.roamer) continue;
+            if (zb.alive && MathX.dist(zb.x, zb.z, player.x, player.z) > keep) {
+                zb.alive = false;
+                zb.removeMe = true;       // sessizce kaybolur, ödül vermez
+                continue;
+            }
+            if (zb.alive) roamers++;
+        }
+
+        roamTimer -= dt;
+        if (roamTimer > 0f || gameOver || !player.alive || !spawnRoamers) return;
+        roamTimer = 0.6f;
+
+        float here = WorldGen.zombieDensity(player.x, player.z);
+        int target = Math.round(Balance.ROAMER_MAX * here * (0.45f + nightFactor * 0.9f));
+        if (roamers >= target) return;
+
+        for (int attempt = 0; attempt < 10; attempt++) {
+            float a = MathX.rnd(0f, MathX.TAU);
+            float r = MathX.rnd(Balance.ACTIVE_RADIUS * 0.78f, Balance.ACTIVE_RADIUS);
+            float px = player.x + (float) Math.cos(a) * r;
+            float pz = player.z + (float) Math.sin(a) * r;
+            if (Math.abs(px) > Balance.WORLD_HALF - 4f || Math.abs(pz) > Balance.WORLD_HALF - 4f) {
+                continue;
+            }
+            if (WorldGen.blocked(px, pz, 1.4f)) continue;
+            if (nearBase(px, pz, 30f)) continue;          // üssün içinde bitmesin
+            float d = WorldGen.zombieDensity(px, pz);
+            if (MathX.rnd() > d) continue;
+            spawnRoamer(px, pz, d);
+            return;
+        }
+    }
+
+    /**
+     * Gece baskınına katılan bir zombi doğurur. Gezgin değildir: akış alanını
+     * takip edip doğrudan reaktöre yürür.
+     */
+    public void spawnRaider(int type, float x, float z, boolean elite) {
+        int before = zombies.size();
+        spawnZombie(type, x, z, elite);
+        if (zombies.size() > before) zombies.get(zombies.size() - 1).roamer = false;
+    }
+
+    /** Yoğunluğa göre tür seçip başıboş bir zombi doğurur. */
+    private void spawnRoamer(float x, float z, float density) {
+        int type = Balance.Z_WALKER;
+        float roll = MathX.rnd();
+        if (density > 0.62f) {
+            type = roll < 0.34f ? Balance.Z_WALKER
+                    : (roll < 0.62f ? Balance.Z_RUNNER
+                    : (roll < 0.86f ? Balance.Z_BRUTE : Balance.Z_SPITTER));
+        } else if (density > 0.34f) {
+            type = roll < 0.56f ? Balance.Z_WALKER
+                    : (roll < 0.86f ? Balance.Z_RUNNER : Balance.Z_BRUTE);
+        } else {
+            type = roll < 0.82f ? Balance.Z_WALKER : Balance.Z_RUNNER;
+        }
+        boolean elite = density > 0.55f && MathX.chance(0.10f + nightFactor * 0.10f);
+        int before = zombies.size();
+        spawnZombie(type, x, z, elite);
+        if (zombies.size() > before) {
+            Zombie zb = zombies.get(zombies.size() - 1);
+            zb.roamer = true;
+            zb.homeX = x;
+            zb.homeZ = z;
+        }
+    }
+
+    /**
+     * Oyuncu bir şehirde dolaşırken binaların önündeki sandıkları açar:
+     * yiyecek, su ve hurda çıkar. Her ada yalnızca bir kez yağmalanır.
+     */
+    private void updateCityLoot(float dt) {
+        lootTimer -= dt;
+        if (lootTimer > 0f || !player.alive || gameOver) return;
+        lootTimer = 0.45f;
+
+        float d = WorldGen.nearestCity(player.x, player.z, cityScratch);
+        if (d < 0f || d > cityScratch[2]) return;
+
+        float cx = cityScratch[0], cz = cityScratch[1];
+        int bx = (int) Math.floor((player.x - cx) / 30f);
+        int bz = (int) Math.floor((player.z - cz) / 30f);
+        for (int j = bz - 1; j <= bz + 1; j++) {
+            for (int i = bx - 1; i <= bx + 1; i++) {
+                if (!WorldGen.lootAt(cityScratch, i, j, lootScratch)) continue;
+                if (MathX.dist(player.x, player.z, lootScratch[0], lootScratch[1]) > 3.4f) {
+                    continue;
+                }
+                long key = blockKey(cx, cz, i, j);
+                if (!lootedBlocks.add(key)) continue;
+                openLootCache(lootScratch[0], lootScratch[1], i, j);
+                return;
+            }
+        }
+    }
+
+    private static long blockKey(float cx, float cz, int bx, int bz) {
+        long a = ((long) (int) cx << 20) ^ (int) cz;
+        return (a << 24) ^ ((bx & 0xFFFL) << 12) ^ (bz & 0xFFFL);
+    }
+
+    /** Bir sandığı açar ve içinden çıkanları yere döker. */
+    private void openLootCache(float x, float z, int bx, int bz) {
+        int roll = WorldGen.hash(bx, bz, 777);
+        int food = 1 + ((roll >>> 3) & 1);
+        int water = 1 + ((roll >>> 5) & 1);
+        int scrap = 25 + ((roll >>> 7) & 63);
+        for (int i = 0; i < food; i++) {
+            spawnPickup(Pickup.FOOD, Balance.FOOD_RESTORE, x, z);
+        }
+        for (int i = 0; i < water; i++) {
+            spawnPickup(Pickup.WATER, Balance.WATER_RESTORE, x, z);
+        }
+        spawnPickup(Pickup.SCRAP, scrap, x, z);
+        if (((roll >>> 11) & 7) == 0) spawnPickup(Pickup.CORE, 1, x, z);
+        particles.dust(x, 0.5f, z, 12);
+        audio.playPickup();
+        message("Sandık yağmalandı", 1.6f);
+    }
+
+    private final float[] cityScratch = new float[3];
+    private final float[] lootScratch = new float[5];
+
+    /** Balta (0) ya da kazmayı (1) bir seviye geliştirir. */
+    public void upgradeTool(int which) {
+        boolean axe = which == 0;
+        int level = axe ? player.axeLevel : player.pickLevel;
+        if (level >= 4) {
+            message(axe ? "Balta azami seviyede" : "Kazma azami seviyede", 1.4f);
+            return;
+        }
+        int wood = 20 + level * 25;
+        int scrap = 15 + level * 30;
+        int fiber = 6 + level * 8;
+        if (player.wood < wood || player.scrap < scrap || player.fiber < fiber) {
+            message("Yetersiz malzeme — " + wood + " odun · " + scrap + " hurda · "
+                    + fiber + " lif", 2.2f);
+            audio.playError();
+            return;
+        }
+        player.wood -= wood;
+        player.scrap -= scrap;
+        player.fiber -= fiber;
+        if (axe) player.axeLevel++;
+        else player.pickLevel++;
+        audio.playUpgrade();
+        big((axe ? "Balta" : "Kazma") + " Sv." + (level + 1) + " — toplama hızlandı", 2.2f);
+    }
+
+    /**
+     * Yere konan ganimeti yapının içinden çıkarır. Zombiler duvarın dibinde
+     * öldüğünde yığın duvarın üstüne düşebiliyor ve oraya ne oyuncu ne de
+     * yoldaş ulaşabiliyordu; en yakın açık hücreye kaydırıyoruz.
+     */
+    public void slideOutOfStructures(Pickup p) {
+        if (!blockedSpot(p.x, p.z)) return;
+        int gx = BuildGrid.worldToCell(p.x), gz = BuildGrid.worldToCell(p.z);
+        float bestD = Float.MAX_VALUE;
+        float bx = p.x, bz = p.z;
+        for (int r = 1; r <= 3; r++) {
+            for (int dz = -r; dz <= r; dz++) {
+                for (int dx = -r; dx <= r; dx++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) != r) continue;
+                    int cx = gx + dx, cz = gz + dz;
+                    if (!BuildGrid.inBounds(cx, cz)) continue;
+                    float wx = BuildGrid.cellToWorld(cx), wz = BuildGrid.cellToWorld(cz);
+                    if (blockedSpot(wx, wz)) continue;
+                    float d = MathX.dist2(p.x, p.z, wx, wz);
+                    if (d < bestD) {
+                        bestD = d;
+                        bx = wx;
+                        bz = wz;
+                    }
+                }
+            }
+            if (bestD < Float.MAX_VALUE) break;
+        }
+        p.x = bx;
+        p.z = bz;
+    }
+
+    /** Bu noktada yapı ya da şehir binası var mı (ganimet oraya konamaz)? */
+    private boolean blockedSpot(float x, float z) {
+        Structure s = grid.atWorld(x, z);
+        if (s != null && s.blocks()) return true;
+        return WorldGen.blocked(x, z, 0.4f);
+    }
+
+    // ---- kaynak toplama -------------------------------------------------
+
+    /** Bu düğüm şu an tüketilmiş mi (kesilmiş ağaç, kırılmış kaya)? */
+    public boolean isDepleted(long key) {
+        return depleted.containsKey(key);
+    }
+
+    /** Kaç düğüm şu an tüketilmiş durumda (test ve istatistik için). */
+    public int depletedCount() {
+        return depleted.size();
+    }
+
+    private final float[] nodeScratch = new float[5];
+
+    /**
+     * Oyuncunun kaynak toplaması. Menzilde bir düğüm varsa toplama düğmesi
+     * açılır; oyuncu basılı tuttuğu sürece iş ilerler, uzaklaşınca iptal olur.
+     * Balta ve kazma işi hızlandırır.
+     */
+    private void updateHarvest(float dt) {
+        // yeniden büyüme
+        if (!depleted.isEmpty()) {
+            java.util.Iterator<java.util.Map.Entry<Long, Float>> it =
+                    depleted.entrySet().iterator();
+            while (it.hasNext()) {
+                java.util.Map.Entry<Long, Float> e = it.next();
+                float left = e.getValue() - dt;
+                if (left <= 0f) it.remove();
+                else e.setValue(left);
+            }
+        }
+
+        if (!player.alive || gameOver) {
+            harvesting = false;
+            harvestProgress = 0f;
+            harvestNode[2] = -1f;
+            return;
+        }
+
+        // Menzildeki en yakın düğümü bul (toplama düğmesi buna göre görünür)
+        float d = Harvest.nearest(this, player.x, player.z, Harvest.REACH, nodeScratch);
+        if (d < 0f) {
+            harvestNode[2] = -1f;
+            harvestProgress = 0f;
+            harvesting = false;
+            return;
+        }
+        boolean sameNode = harvestNode[2] >= 0f
+                && nodeScratch[3] == harvestNode[3] && nodeScratch[4] == harvestNode[4];
+        System.arraycopy(nodeScratch, 0, harvestNode, 0, 5);
+        if (!sameNode) harvestProgress = 0f;
+
+        if (!harvesting) {
+            harvestProgress = Math.max(0f, harvestProgress - dt * 0.6f);
+            return;
+        }
+
+        int prop = (int) harvestNode[2];
+        int res = Harvest.resourceOf(prop);
+        float speed = player.harvestSpeed(res) / Math.max(0.1f, Harvest.workOf(prop));
+        harvestProgress += dt * speed;
+        if (MathX.chance(dt * 9f)) {
+            particles.dust(harvestNode[0], 0.9f, harvestNode[1], 2);
+        }
+        if (harvestProgress < 1f) return;
+
+        collectNode(prop, (int) harvestNode[3], (int) harvestNode[4],
+                harvestNode[0], harvestNode[1], false);
+        harvestProgress = 0f;
+        harvesting = false;
+    }
+
+    /**
+     * Bir düğümü tüketir ve kazancı kasaya yazar. Hem oyuncu hem de toplama
+     * görevli yoldaşlar bu yolu kullanır.
+     */
+    public void collectNode(int prop, int px, int pz, float x, float z, boolean byNpc) {
+        long key = Harvest.key(px, pz);
+        if (depleted.containsKey(key)) return;
+        depleted.put(key, Harvest.regrowOf(prop));
+
+        int res = Harvest.resourceOf(prop);
+        int amount = Harvest.yieldOf(prop);
+        addResource(res, amount, byNpc);
+        addText(x, 1.5f, z, "+" + amount + " " + Balance.resName(res),
+                Balance.RES_COLORS[res] | 0xFF000000, 1.2f, 1f);
+
+        int bonus = Harvest.fiberBonus(prop);
+        if (bonus > 0) {
+            addResource(Balance.R_FIBER, bonus, byNpc);
+        }
+        // Çalıdan meyve, enkazdan konserve ve su çıkar: hayatta kalmanın
+        // asıl kaynağı şehirler değil, çevrende topladıkların.
+        if (prop == WorldGen.PROP_GRASS && MathX.chance(0.42f)) {
+            spawnPickup(Pickup.FOOD, Math.round(Balance.FOOD_RESTORE * 0.45f), x, z);
+        } else if (res == Balance.R_SCRAP && MathX.chance(0.45f)) {
+            boolean water = MathX.chance(0.55f);
+            spawnPickup(water ? Pickup.WATER : Pickup.FOOD,
+                    water ? Balance.WATER_RESTORE : Balance.FOOD_RESTORE, x, z);
+        }
+        particles.dust(x, 0.7f, z, 10);
+        audio.playPickup();
+    }
+
+    /** Verilen yarıçapta sur hattını örer (kapılar açık kalır). */
+    public void buildWallRing(float radius) {
+        int lo = Math.max(0, BuildGrid.worldToCell(-radius) - 1);
+        int hi = Math.min(BuildGrid.N - 1, BuildGrid.worldToCell(radius) + 1);
+        for (int gz = lo; gz <= hi; gz++) {
+            for (int gx = lo; gx <= hi; gx++) {
+                float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
+                if (!BaseLayout.isWallRing(cx, cz, radius)) continue;
+                if (BaseLayout.isGate(cx, cz)) continue;
+                if (grid.canPlace(gx, gz) != BuildGrid.OK) continue;
+                placeFree(Balance.S_WALL, gx, gz);
+            }
+        }
+    }
+
+    /** Yapıyı kaldırır; refund true ise hurdanın bir kısmı kasaya döner. */
+    public void removeStructure(Structure s, boolean refund) {
+        if (s == null || s == core || !s.alive) return;
+        if (refund) player.scrap += s.def().sellValue(s.level, s.hpFraction());
+        s.alive = false;
+        grid.clear(s.gx, s.gz);
+        refreshWallsAround(s.gx, s.gz);
+        structures.remove(s);
+        if (selected == s) selected = null;
+        flowDirty = true;
+        particles.dust(s.x, 0.2f, s.z, 8);
+    }
+
     public boolean nearBase(float x, float z, float range) {
         return MathX.len(x, z) < range;
     }
@@ -1100,6 +1624,20 @@ public class GameWorld {
     public void collectPickup(Pickup p, boolean byPlayer) {
         if (!p.alive) return;
         p.alive = false;
+        if (p.kind == Pickup.FOOD) {
+            player.eat(p.amount);
+            addText(p.x, 1.4f, p.z, "+" + p.amount + " tokluk", 0x9CCC65, 1.5f, 1.2f);
+            particles.sparks(p.x, 0.6f, p.z, 8, 0x9CCC65);
+            audio.playPickup();
+            return;
+        }
+        if (p.kind == Pickup.WATER) {
+            player.drink(p.amount);
+            addText(p.x, 1.4f, p.z, "+" + p.amount + " su", 0x4FC3F7, 1.5f, 1.2f);
+            particles.sparks(p.x, 0.6f, p.z, 8, 0x4FC3F7);
+            audio.playPickup();
+            return;
+        }
         if (p.kind == Pickup.CORE) {
             addToTreasury(0, p.amount, !byPlayer);
             addText(p.x, 1.4f, p.z, "+" + p.amount + " çekirdek", 0x4DD0E1, 1.6f, 1.2f);
@@ -1355,7 +1893,7 @@ public class GameWorld {
 
     private void updateCore(Structure s, float dt) {
         // Reaktör yavaşça kendini onarır (hazırlık aşamasında daha hızlı).
-        float rate = waves.isPrepare() ? 30f : 7f;
+        float rate = isNight() ? 7f : 30f;
         s.repair(rate * dt);
         if (MathX.chance(dt * 6f)) {
             particles.spawn(s.x + MathX.rnd(-1.4f, 1.4f), MathX.rnd(1.2f, 3.6f),
@@ -1704,8 +2242,8 @@ public class GameWorld {
     public void tryPlace(int type, int gx, int gz) {
         if (gameOver) return;
         Balance.StructDef d = Balance.struct(type);
-        if (waves.wave < d.unlockWave) {
-            message(d.name + " " + d.unlockWave + ". dalgada açılır", 2f);
+        if (dayCount < d.unlockDay) {
+            message(d.name + " " + d.unlockDay + ". günde açılır", 2f);
             return;
         }
         int code = grid.canPlace(gx, gz);
@@ -1717,9 +2255,9 @@ public class GameWorld {
             message("Burada bir inşa planı var", 1.4f);
             return;
         }
-        int cost = player.buildCost(d.cost);
-        if (player.scrap < cost) {
-            message("Yetersiz hurda (" + cost + ")", 1.6f);
+        String missing = missingFor(d);
+        if (missing != null) {
+            message("Yetersiz " + missing + " — " + costText(d), 1.8f);
             audio.playError();
             return;
         }
@@ -1729,7 +2267,7 @@ public class GameWorld {
             message("Burada duruyorsun", 1.2f);
             return;
         }
-        player.scrap -= cost;
+        payBuild(d);
         Structure s = new Structure(type, 1, gx, gz, player.structHpBonus(), input.buildRotation);
         structures.add(s);
         grid.set(gx, gz, s);
@@ -1739,7 +2277,33 @@ public class GameWorld {
         selected = s;
         particles.dust(cx, 0.1f, cz, 12);
         audio.playBuild();
-        addText(cx, 1.6f, cz, "-" + cost, 0xFFAB91, 0.8f, 0.85f);
+        addText(cx, 1.6f, cz, costText(d), 0xFFAB91, 0.8f, 0.85f);
+    }
+
+    /** "40 odun · 10 hurda" gibi kısa maliyet metni. */
+    public String costText(Balance.StructDef d) {
+        StringBuilder sb = new StringBuilder();
+        appendCost(sb, player.buildCost(d.cost), "hurda");
+        appendCost(sb, player.buildCost(d.woodCost), "odun");
+        appendCost(sb, player.buildCost(d.stoneCost), "taş");
+        return sb.length() == 0 ? "bedava" : sb.toString();
+    }
+
+    /** Geliştirme maliyetinin kısa metni. */
+    public String upgradeCostText(Balance.StructDef d, int level) {
+        StringBuilder sb = new StringBuilder();
+        appendCost(sb, player.buildCost(d.upgradeCostOf(Balance.R_SCRAP, level)), "hurda");
+        appendCost(sb, player.buildCost(d.upgradeCostOf(Balance.R_WOOD, level)), "odun");
+        appendCost(sb, player.buildCost(d.upgradeCostOf(Balance.R_STONE, level)), "taş");
+        int cores = d.upgradeCores(level);
+        if (cores > 0) appendCost(sb, cores, "çekirdek");
+        return sb.length() == 0 ? "bedava" : sb.toString();
+    }
+
+    private static void appendCost(StringBuilder sb, int amount, String name) {
+        if (amount <= 0) return;
+        if (sb.length() > 0) sb.append(" · ");
+        sb.append(amount).append(' ').append(name);
     }
 
     /**
@@ -1784,20 +2348,12 @@ public class GameWorld {
             message("Azami seviye", 1.2f);
             return;
         }
-        int cost = player.buildCost(d.upgradeCost(s.level));
-        int cores = d.upgradeCores(s.level);
-        if (player.scrap < cost) {
-            message("Yetersiz hurda (" + cost + ")", 1.6f);
+        if (!canUpgrade(d, s.level)) {
+            message("Yetersiz kaynak — " + upgradeCostText(d, s.level), 1.9f);
             audio.playError();
             return;
         }
-        if (player.cores < cores) {
-            message("Yetersiz enerji çekirdeği (" + cores + ")", 1.8f);
-            audio.playError();
-            return;
-        }
-        player.scrap -= cost;
-        player.cores -= cores;
+        payUpgrade(d, s.level);
         s.level++;
         float frac = s.hpFraction();
         s.maxHp = d.hpAt(s.level) * player.structHpBonus();
@@ -1960,52 +2516,19 @@ public class GameWorld {
         if (speaker != null) npcSays(speaker, text);
     }
 
-    public void onWaveStarted(int wave) {
-        started = true;
-        selected = null;
-        input.buildMode = false;   // dalga başlayınca savaş moduna dön
-        if (Balance.isBossWave(wave)) {
-            squadReact("Dev geliyor! Ateşi ona yoğunlaştıralım, reaktörü koruyun.",
-                    Balance.NPC_GUARD);
-        } else {
-            squadReact(wave + ". dalga geliyor — amacımız reaktörü ayakta tutmak.",
-                    Balance.NPC_GUARD);
-        }
-        flow.compute(grid);
-        audio.playWaveStart();
-        big(wave + ". DALGA" + (Balance.isBossWave(wave) ? " — MUTANT DEV!" : ""), 2.6f);
-        if (wave > waveRecord) waveRecord = wave;
-    }
 
-    public void onWaveCleared(int wave) {
-        int reward = Math.round(Balance.waveScrapReward(wave) * player.scrapBonus());
-        for (int i = 0; i < structures.size(); i++) {
-            Structure s = structures.get(i);
-            if (s.alive && s.type == Balance.S_COLLECTOR) {
-                reward += Math.round(s.def().damageAt(s.level) * player.scrapBonus());
-            }
-        }
-        player.scrap += reward;
-        scrapEarned += reward;
-        player.addXp(Balance.waveXpReward(wave), this);
-        player.refillAmmo(0.3f);
-        if (Balance.isBossWave(wave)) player.cores += 1;
+    /** Şafak söktü: gece atlatıldı. */
+    public void onNightSurvived() {
+        int day = dayCount;
+        player.addXp(Balance.nightXpReward(day), this);
+        player.refillAmmo(0.25f);
         audio.playWaveCleared();
-        big(wave + ". dalga temizlendi  +" + reward + " hurda", 2.8f);
+        big(day + ". geceyi atlattın", 2.6f);
+        if (day > waveRecord) waveRecord = day;
+        squadReact("Şafak söktü. Hasarı onarıp kaynak toplamaya çıkıyorum.",
+                Balance.NPC_ENGINEER);
     }
 
-    public void onPrepareStarted() {
-        input.buildMode = true;    // hazırlıkta doğrudan inşa moduna geç
-        int loose = looseScrap();
-        if (loose > 0) {
-            squadReact("Sahada " + loose + " hurda duruyor, toplamaya gidiyorum.",
-                    Balance.NPC_SCAVENGER);
-        } else {
-            squadReact("Hazırlık başladı: hasarı onarıp planları kuruyorum.",
-                    Balance.NPC_ENGINEER);
-        }
-        message("Hazırlık: inşa et, geliştir, mevzilen", 3f);
-    }
 
     public void onLevelUp() {
         audio.playLevelUp();
@@ -2026,6 +2549,10 @@ public class GameWorld {
         player.x = 0f;
         player.z = 6f;
         player.dashCd = 0f;
+        // Açlıktan ölüp hemen yine açlıktan ölme kısırdöngüsüne düşmesin:
+        // ayağa kalkarken ihtiyaçları da bir nebze toparlanır.
+        player.hunger = Math.max(player.hunger, Balance.NEED_LOW + 10f);
+        player.thirst = Math.max(player.thirst, Balance.NEED_LOW + 10f);
         message("Ayağa kalktın", 1.6f);
     }
 

@@ -15,12 +15,14 @@ import com.karargah.survival.game.BuildGrid;
 import com.karargah.survival.game.Cmd;
 import com.karargah.survival.game.FloatingText;
 import com.karargah.survival.game.GameWorld;
+import com.karargah.survival.game.Harvest;
 import com.karargah.survival.game.InputState;
 import com.karargah.survival.game.Npc;
 import com.karargah.survival.game.Pickup;
 import com.karargah.survival.game.Player;
 import com.karargah.survival.game.Structure;
-import com.karargah.survival.game.WaveManager;
+import com.karargah.survival.game.Threat;
+import com.karargah.survival.game.WorldGen;
 import com.karargah.survival.game.Zombie;
 
 /**
@@ -42,7 +44,6 @@ public class HudView extends View {
     private static final int A_WEAPON_NEXT = 4;
     private static final int A_BUILD_TOGGLE = 5;
     private static final int A_PAUSE = 6;
-    private static final int A_START_WAVE = 7;
     private static final int A_REPAIR_ALL = 8;
     private static final int A_PICK_BUILD = 9;
     private static final int A_UPGRADE = 10;
@@ -76,6 +77,10 @@ public class HudView extends View {
     private static final int A_CANCEL_PLANS = 38;
     private static final int A_AUTOBUILD = 39;
     private static final int A_SELF_IMPROVE = 40;
+    /** Basılı tutulan toplama düğmesi (ağaç kes, taş kır). */
+    private static final int A_HARVEST = 41;
+    private static final int A_UPGRADE_AXE = 42;
+    private static final int A_UPGRADE_PICK = 43;
 
     public interface Listener {
         void onNewGame();
@@ -109,6 +114,7 @@ public class HudView extends View {
 
     // dokunma durumu
     private int movePointer = -1, camPointer = -1, firePointer = -1, buildPointer = -1;
+    private int harvestPointer = -1;
     private int pinchA = -1, pinchB = -1;
     private float pinchDist;
     private float joyBaseX, joyBaseY, joyX, joyY;
@@ -150,6 +156,10 @@ public class HudView extends View {
             input.moveZ = 0f;
             movePointer = -1;
             firePointer = -1;
+            if (harvestPointer != -1) {
+                harvestPointer = -1;
+                input.push(new Cmd(Cmd.HARVEST, 0));
+            }
         }
     }
 
@@ -211,8 +221,8 @@ public class HudView extends View {
         float barW = 250 * sc;
         float top = pad;
 
-        // can + seviye
-        ui.rect(c, pad, top, pad + barW + 74 * sc, top + 62 * sc, 12 * sc, 0xB0101613);
+        // can + seviye + hayatta kalma ihtiyaçları
+        ui.rect(c, pad, top, pad + barW + 74 * sc, top + 78 * sc, 12 * sc, 0xB0101613);
         ui.bar(c, pad + 66 * sc, top + 9 * sc, pad + 66 * sc + barW - 10 * sc, top + 27 * sc,
                 p.hp / Math.max(1f, p.maxHp), 0xFF2A1F1F, p.hp / p.maxHp < 0.3f ? 0xFFE05C4B : 0xFF5FD38A, true);
         ui.bar(c, pad + 66 * sc, top + 33 * sc, pad + 66 * sc + barW - 10 * sc, top + 45 * sc,
@@ -225,53 +235,67 @@ public class HudView extends View {
                 pad + 12 * sc, top + 50 * sc, 15 * sc,
                 p.skillPoints > 0 ? UiKit.COL_ACCENT : UiKit.COL_DIM, Paint.Align.LEFT);
 
-        // kaynaklar
+        // tokluk ve su: biri biterse can erimeye başlar
+        float nx0 = pad + 66 * sc, nx1 = pad + 66 * sc + barW - 10 * sc;
+        float nmid = nx0 + (nx1 - nx0) * 0.5f - 4 * sc;
+        ui.bar(c, nx0, top + 51 * sc, nmid, top + 62 * sc,
+                p.hunger / Balance.NEED_MAX, 0xFF23301B,
+                p.hunger < Balance.NEED_LOW ? 0xFFE0A03B : 0xFF9CCC65, false);
+        ui.bar(c, nmid + 8 * sc, top + 51 * sc, nx1, top + 62 * sc,
+                p.thirst / Balance.NEED_MAX, 0xFF152A33,
+                p.thirst < Balance.NEED_LOW ? 0xFFE0A03B : 0xFF4FC3F7, false);
+        ui.labelShadow(c, "TOK", nx0 + 3 * sc, top + 60 * sc, 9 * sc, 0xFFE8F5E9,
+                Paint.Align.LEFT);
+        ui.labelShadow(c, "SU", nmid + 11 * sc, top + 60 * sc, 9 * sc, 0xFFE1F5FE,
+                Paint.Align.LEFT);
+
+        // biyom, gün ve saat
+        ui.labelShadow(c, WorldGen.biomeName(gw.biome) + "  ·  " + gw.dayCount + ". gün "
+                        + gw.clockText() + (gw.isNight() ? "  ☾" : "  ☀"),
+                pad + 12 * sc, top + 73 * sc, 12 * sc,
+                gw.isNight() ? 0xFF9FA8DA : 0xFFCFD8DC, Paint.Align.LEFT);
+
+        // envanter: hurda, odun, taş, lif + çekirdek
         float rx = w - pad;
-        ui.rect(c, rx - 250 * sc, top, rx - 58 * sc, top + 34 * sc, 10 * sc, 0xB0101613);
-        ui.labelShadow(c, "KASA " + p.scrap, rx - 240 * sc, top + 24 * sc, 20 * sc,
-                UiKit.COL_GOLD, Paint.Align.LEFT);
-        if (!gw.npcs.isEmpty() && gw.scrapFromNpcs > 0) {
-            ui.labelShadow(c, "ekip +" + gw.scrapFromNpcs, rx - 128 * sc, top + 24 * sc,
-                    13 * sc, UiKit.COL_DIM, Paint.Align.LEFT);
-        }
-        int loose = gw.looseScrap();
-        if (loose > 0) {
-            ui.labelShadow(c, "yerde " + loose, rx - 128 * sc, top + 12 * sc, 13 * sc,
-                    0xFFFFE082, Paint.Align.LEFT);
-        }
-        ui.rect(c, rx - 250 * sc, top + 38 * sc, rx - 58 * sc, top + 68 * sc, 10 * sc, 0xB0101613);
-        ui.labelShadow(c, "ÇEKİRDEK " + p.cores, rx - 240 * sc, top + 60 * sc, 18 * sc,
-                UiKit.COL_CYAN, Paint.Align.LEFT);
+        float invW = 250 * sc;
+        ui.rect(c, rx - invW, top, rx - 58 * sc, top + 68 * sc, 10 * sc, 0xB0101613);
+        float colW = (invW - 68 * sc) / 2f;
+        drawResource(c, rx - invW + 8 * sc, top + 22 * sc, colW,
+                Balance.R_SCRAP, p.scrap);
+        drawResource(c, rx - invW + 8 * sc + colW, top + 22 * sc, colW,
+                Balance.R_WOOD, p.wood);
+        drawResource(c, rx - invW + 8 * sc, top + 44 * sc, colW,
+                Balance.R_STONE, p.stone);
+        drawResource(c, rx - invW + 8 * sc + colW, top + 44 * sc, colW,
+                Balance.R_FIBER, p.fiber);
+        ui.labelShadow(c, "çekirdek " + p.cores + (gw.scrapFromNpcs > 0
+                        ? "   ekip +" + gw.scrapFromNpcs : ""),
+                rx - invW + 8 * sc, top + 62 * sc, 12 * sc,
+                UiKit.COL_DIM, Paint.Align.LEFT);
 
         ui.button(c, rx - 50 * sc, top, rx, top + 44 * sc, "| |", null,
                 UiKit.STYLE_GHOST, true, A_PAUSE, 0);
 
-        // dalga bilgisi
+        // gece / tehdit durumu (dalga sayacı yerine)
         float cx = w * 0.5f;
-        WaveManager wm = gw.waves;
+        Threat th = gw.threat;
         String title;
-        int col = UiKit.COL_TEXT;
-        if (wm.phase == WaveManager.PHASE_WAVE) {
-            title = wm.wave + ". DALGA";
-            col = 0xFFE9A13B;
-        } else if (wm.phase == WaveManager.PHASE_CLEARED) {
-            title = "TEMİZLENDİ";
-            col = UiKit.COL_ACCENT;
+        int col;
+        if (th.raiding) {
+            title = th.bloodMoon ? "KANLI AY" : "GECE BASKINI";
+            col = th.bloodMoon ? 0xFFFF5252 : 0xFFE9A13B;
         } else {
-            title = "HAZIRLIK";
+            title = gw.dayCount + ". GÜN";
             col = UiKit.COL_CYAN;
         }
         ui.rect(c, cx - 130 * sc, top, cx + 130 * sc, top + 52 * sc, 12 * sc, 0xB0101613);
         ui.labelShadow(c, title, cx, top + 24 * sc, 22 * sc, col, Paint.Align.CENTER);
-        String sub;
-        if (wm.phase == WaveManager.PHASE_WAVE) {
-            sub = "kalan zombi: " + wm.remaining(gw);
-        } else if (wm.phase == WaveManager.PHASE_PREPARE) {
-            sub = "sonraki dalga: " + Math.max(0, Math.round(wm.timer)) + " sn";
-        } else {
-            sub = "hazırlanıyor...";
+        ui.labelShadow(c, th.statusText(gw), cx, top + 44 * sc, 14 * sc,
+                UiKit.COL_DIM, Paint.Align.CENTER);
+        if (th.raiding && th.plannedTonight > 0) {
+            ui.bar(c, cx - 118 * sc, top + 50 * sc, cx + 118 * sc, top + 56 * sc,
+                    th.progress, 0xFF2A1A18, th.bloodMoon ? 0xFFFF5252 : 0xFFE9A13B, false);
         }
-        ui.labelShadow(c, sub, cx, top + 44 * sc, 16 * sc, UiKit.COL_DIM, Paint.Align.CENTER);
 
         // güç durumu
         if (gw.powerUse > 0.1f) {
@@ -296,11 +320,32 @@ public class HudView extends View {
                     core.hpFraction(), 0xFF151E22, 0xFF4DD0E1, true);
         }
 
-        if (gw.waves.isPrepare() && screen == SCREEN_GAME) {
-            float bw = 200 * sc, bh = 46 * sc;
-            ui.button(c, cx - bw * 0.5f, h - bh - 12 * sc, cx + bw * 0.5f, h - 12 * sc,
-                    "DALGAYI BAŞLAT", null, UiKit.STYLE_PRIMARY, true, A_START_WAVE, 0);
+    }
+
+    /** Envanterde tek bir kaynak satırı: renkli kısa ad + miktar. */
+    private void drawResource(Canvas c, float x, float y, float width, int res, int amount) {
+        ui.labelShadow(c, Balance.RES_SHORT[res], x, y, 12 * sc,
+                0xFF000000 | Balance.RES_COLORS[res], Paint.Align.LEFT);
+        ui.labelShadow(c, String.valueOf(amount), x + width - 6 * sc, y, 17 * sc,
+                UiKit.COL_TEXT, Paint.Align.RIGHT);
+    }
+
+    /** İnşa çubuğundaki kısa maliyet: "22 odun", "70h 30o" gibi. */
+    private static String shortCost(Player p, Balance.StructDef d) {
+        StringBuilder sb = new StringBuilder();
+        int scrap = p.buildCost(d.cost);
+        int wood = p.buildCost(d.woodCost);
+        int stone = p.buildCost(d.stoneCost);
+        if (scrap > 0) sb.append(scrap).append('h');
+        if (wood > 0) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(wood).append('o');
         }
+        if (stone > 0) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(stone).append('t');
+        }
+        return sb.length() == 0 ? "bedava" : sb.toString();
     }
 
     // ---- dünya üstü göstergeler -----------------------------------------
@@ -491,6 +536,18 @@ public class HudView extends View {
             ui.circleButton(c, rx - 138 * sc, ry - 118 * sc, 36 * sc, "SİLAH", 0xCC4A4430,
                     p.alive, A_WEAPON_NEXT, 0, 0f);
 
+            // menzilde bir kaynak varsa toplama düğmesi belirir
+            int node = (int) gw.harvestNode[2];
+            if (node >= 0 && p.alive) {
+                ui.circleButton(c, rx - 96 * sc, ry - 94 * sc, 46 * sc,
+                        Harvest.nameOf(node).toUpperCase(java.util.Locale.ROOT),
+                        0xCC3E5A2E, true, A_HARVEST, 0, gw.harvestProgress);
+                if (gw.harvesting) {
+                    ui.labelShadow(c, Harvest.verbOf(node), w * 0.5f, h - 190 * sc, 17 * sc,
+                            0xFF9CCC65, Paint.Align.CENTER);
+                }
+            }
+
             // cephane göstergesi
             Balance.WeaponDef d = p.weapon();
             String ammo = p.reserve[p.currentWeapon] >= 9000
@@ -534,19 +591,32 @@ public class HudView extends View {
         }
     }
 
-    /** Sol üstte küçük harita: üs, yapılar, zombiler ve doğma kapıları. */
+    /** Küçük haritanın kapsadığı yarıçap (birim). Dünya devasa, harita yerel. */
+    private static final float MAP_RANGE = 130f;
+
+    /**
+     * Sol üstte küçük harita. Dünya 100.000 birim olduğu için harita artık
+     * bütün dünyayı değil, oyuncunun çevresindeki {@link #MAP_RANGE} birimlik
+     * alanı gösterir; üs uzaktaysa kenarda bir ok ile yönü verilir.
+     */
     private void drawMinimap(Canvas c, GameWorld gw, float w, float h) {
         float size = 132 * sc;
         float l = 14 * sc, t = 84 * sc;
         float cx = l + size * 0.5f, cy = t + size * 0.5f;
-        float scale = (size * 0.5f) / Balance.WORLD_HALF;
+        float scale = (size * 0.5f) / MAP_RANGE;
+        float px = gw.player.x, pz = gw.player.z;
+        float half = size * 0.5f - 2f * sc;
 
         ui.rect(c, l, t, l + size, t + size, 10 * sc, 0xB00C120F);
         ui.border(c, l, t, l + size, t + size, 10 * sc, 0x44FFFFFF, 1.4f * sc);
 
+        c.save();
+        c.clipRect(l, t, l + size, t + size);
+
+        // inşa alanı halkası (üs menzildeyse görünür)
         ui.stroke.setColor(0x334DD0E1);
         ui.stroke.setStrokeWidth(1.4f * sc);
-        c.drawCircle(cx, cy, Balance.BUILD_RADIUS * scale, ui.stroke);
+        c.drawCircle(cx - px * scale, cy - pz * scale, Balance.BUILD_RADIUS * scale, ui.stroke);
 
         ui.fill.setStyle(Paint.Style.FILL);
         // yapılar
@@ -558,17 +628,12 @@ public class HudView extends View {
                 break;
             }
             if (s == null || !s.alive) continue;
+            if (!onMap(s.x, s.z, px, pz)) continue;
             boolean core = s.type == Balance.S_CORE;
             ui.fill.setColor(core ? 0xFF4DD0E1
                     : (s.isTurret() ? 0xFF9CCC65 : 0x99C8C8B0));
             float r = core ? 4.5f * sc : 1.7f * sc;
-            c.drawCircle(cx + s.x * scale, cy + s.z * scale, r, ui.fill);
-        }
-        // doğma kapıları
-        for (int i = 0; i < gw.waves.activeSpawnPoints; i++) {
-            ui.fill.setColor(0xFF8E2B2B);
-            c.drawCircle(cx + gw.waves.spawnX[i] * scale, cy + gw.waves.spawnZ[i] * scale,
-                    3f * sc, ui.fill);
+            c.drawCircle(cx + (s.x - px) * scale, cy + (s.z - pz) * scale, r, ui.fill);
         }
         // zombiler
         for (int i = 0; i < gw.zombies.size(); i++) {
@@ -578,9 +643,10 @@ public class HudView extends View {
             } catch (IndexOutOfBoundsException e) {
                 break;
             }
-            if (z == null || !z.alive) continue;
+            if (z == null || !z.alive || !onMap(z.x, z.z, px, pz)) continue;
             ui.fill.setColor(z.isBoss() ? 0xFFFF5252 : (z.elite ? 0xFFCE93D8 : 0xFFE05C4B));
-            c.drawCircle(cx + z.x * scale, cy + z.z * scale, z.isBoss() ? 4f * sc : 2f * sc, ui.fill);
+            c.drawCircle(cx + (z.x - px) * scale, cy + (z.z - pz) * scale,
+                    z.isBoss() ? 4f * sc : 2f * sc, ui.fill);
         }
         // yere düşen ganimet
         for (int i = 0; i < gw.pickups.size(); i++) {
@@ -590,9 +656,14 @@ public class HudView extends View {
             } catch (IndexOutOfBoundsException e) {
                 break;
             }
-            if (p == null || !p.alive) continue;
-            ui.fill.setColor(p.kind == Pickup.CORE ? 0xFF4DD0E1 : 0xFFFFD54F);
-            c.drawCircle(cx + p.x * scale, cy + p.z * scale, 1.6f * sc, ui.fill);
+            if (p == null || !p.alive || !onMap(p.x, p.z, px, pz)) continue;
+            int col;
+            if (p.kind == Pickup.CORE) col = 0xFF4DD0E1;
+            else if (p.kind == Pickup.FOOD) col = 0xFF9CCC65;
+            else if (p.kind == Pickup.WATER) col = 0xFF4FC3F7;
+            else col = 0xFFFFD54F;
+            ui.fill.setColor(col);
+            c.drawCircle(cx + (p.x - px) * scale, cy + (p.z - pz) * scale, 1.6f * sc, ui.fill);
         }
         // yoldaşlar
         for (int i = 0; i < gw.npcs.size(); i++) {
@@ -602,20 +673,37 @@ public class HudView extends View {
             } catch (IndexOutOfBoundsException e) {
                 break;
             }
-            if (n == null || !n.alive) continue;
+            if (n == null || !n.alive || !onMap(n.x, n.z, px, pz)) continue;
             ui.fill.setColor(n.downed ? 0xFF8E3A31 : (0xFF000000 | Balance.npc(n.role).accent));
-            c.drawCircle(cx + n.x * scale, cy + n.z * scale, 2.6f * sc, ui.fill);
+            c.drawCircle(cx + (n.x - px) * scale, cy + (n.z - pz) * scale, 2.6f * sc, ui.fill);
         }
 
-        // oyuncu
+        // oyuncu her zaman merkezde
         ui.fill.setColor(0xFFFFFFFF);
-        c.drawCircle(cx + gw.player.x * scale, cy + gw.player.z * scale, 3f * sc, ui.fill);
+        c.drawCircle(cx, cy, 3f * sc, ui.fill);
         ui.stroke.setColor(0xFFFFFFFF);
         ui.stroke.setStrokeWidth(1.6f * sc);
         float fx = (float) Math.sin(gw.player.aimYaw), fz = (float) Math.cos(gw.player.aimYaw);
-        c.drawLine(cx + gw.player.x * scale, cy + gw.player.z * scale,
-                cx + gw.player.x * scale + fx * 9 * sc,
-                cy + gw.player.z * scale + fz * 9 * sc, ui.stroke);
+        c.drawLine(cx, cy, cx + fx * 9 * sc, cy + fz * 9 * sc, ui.stroke);
+        c.restore();
+
+        // Üs menzil dışındaysa kenarda yön oku ve uzaklık
+        float dBase = MathX.len(px, pz);
+        if (dBase > MAP_RANGE) {
+            float ux = -px / dBase, uz = -pz / dBase;
+            float ax = cx + ux * half, ay = cy + uz * half;
+            ui.fill.setColor(0xFF4DD0E1);
+            c.drawCircle(ax, ay, 3.4f * sc, ui.fill);
+            ui.text.setColor(0xFF4DD0E1);
+            ui.text.setTextSize(10 * sc);
+            ui.text.setTextAlign(Paint.Align.LEFT);
+            c.drawText("ÜS " + Math.round(dBase) + "m", l + 6 * sc, t + size - 6 * sc, ui.text);
+        }
+    }
+
+    /** Nokta küçük haritanın kapsadığı alanda mı? */
+    private static boolean onMap(float x, float z, float px, float pz) {
+        return Math.abs(x - px) <= MAP_RANGE && Math.abs(z - pz) <= MAP_RANGE;
     }
 
     /** Hasar alınca kenarlarda kırmızı parlama. */
@@ -713,9 +801,8 @@ public class HudView extends View {
             Balance.StructDef d = Balance.struct(i);
             float l = x0 + (i - 1) * cell;
             float r = l + cell - 4 * sc;
-            boolean locked = gw.waves.wave < d.unlockWave;
-            int cost = p.buildCost(d.cost);
-            boolean affordable = p.scrap >= cost && !locked;
+            boolean locked = gw.dayCount < d.unlockDay;
+            boolean affordable = gw.canBuild(d) && !locked;
             boolean sel = input.buildType == i;
 
             int bg = sel ? 0xFF2E7D52 : (affordable ? 0xFF25302B : 0xFF1E2320);
@@ -728,8 +815,8 @@ public class HudView extends View {
             String name = d.name.length() > 11 ? d.name.substring(0, 10) + "." : d.name;
             ui.label(c, name, (l + r) * 0.5f, y0 + 54 * sc, 14 * sc,
                     locked ? 0xFF6B736E : UiKit.COL_TEXT, Paint.Align.CENTER);
-            ui.label(c, locked ? "Dalga " + d.unlockWave : String.valueOf(cost),
-                    (l + r) * 0.5f, y0 + 72 * sc, 15 * sc,
+            ui.label(c, locked ? d.unlockDay + ". gün" : shortCost(p, d),
+                    (l + r) * 0.5f, y0 + 72 * sc, 13 * sc,
                     locked ? UiKit.COL_DIM : (affordable ? UiKit.COL_GOLD : UiKit.COL_DANGER),
                     Paint.Align.CENTER);
         }
@@ -1177,7 +1264,7 @@ public class HudView extends View {
         if (gw != null) {
             int mins = (int) (gw.playTime / 60f);
             int secs = (int) (gw.playTime % 60f);
-            ui.labelShadow(c, "Ulaşılan dalga: " + gw.waves.wave, cx, h * 0.36f, 26 * sc,
+            ui.labelShadow(c, "Hayatta kalınan gün: " + gw.dayCount, cx, h * 0.36f, 26 * sc,
                     UiKit.COL_GOLD, Paint.Align.CENTER);
             ui.labelShadow(c, "Öldürülen zombi: " + gw.totalKills
                             + "   ·   Kurulan yapı: " + gw.structuresBuilt
@@ -1290,6 +1377,7 @@ public class HudView extends View {
 
     private void releaseAll() {
         movePointer = camPointer = firePointer = buildPointer = -1;
+        harvestPointer = -1;
         pinchA = pinchB = -1;
         input.moveX = 0f;
         input.moveZ = 0f;
@@ -1306,6 +1394,11 @@ public class HudView extends View {
             if (act == A_FIRE) {
                 firePointer = id;
                 input.firing = true;
+                return;
+            }
+            if (act == A_HARVEST) {
+                harvestPointer = id;
+                input.push(new Cmd(Cmd.HARVEST, 1));
                 return;
             }
             performAction(act, param[0]);
@@ -1421,6 +1514,10 @@ public class HudView extends View {
             firePointer = -1;
             input.firing = false;
         }
+        if (id == harvestPointer) {
+            harvestPointer = -1;
+            input.push(new Cmd(Cmd.HARVEST, 0));
+        }
         if (id == camPointer) camPointer = -1;
         if (id == buildPointer) {
             buildPointer = -1;
@@ -1491,7 +1588,6 @@ public class HudView extends View {
                 if (!input.buildMode) input.push(new Cmd(Cmd.DESELECT));
                 break;
             case A_PAUSE: setScreen(SCREEN_PAUSE); break;
-            case A_START_WAVE: input.push(new Cmd(Cmd.START_WAVE)); break;
             case A_REPAIR_ALL: input.push(new Cmd(Cmd.REPAIR_ALL)); break;
             case A_BUY_AMMO: input.push(new Cmd(Cmd.BUY_AMMO)); break;
             case A_ROTATE: input.push(new Cmd(Cmd.ROTATE)); break;
@@ -1507,6 +1603,8 @@ public class HudView extends View {
             case A_CANCEL_PLANS: input.push(new Cmd(Cmd.CANCEL_ALL_PLANS)); break;
             case A_AUTOBUILD: input.push(new Cmd(Cmd.TOGGLE_AUTOBUILD)); break;
             case A_SELF_IMPROVE: input.push(new Cmd(Cmd.SELF_IMPROVE, squadSel)); break;
+            case A_UPGRADE_AXE: input.push(new Cmd(Cmd.UPGRADE_TOOL, 0)); break;
+            case A_UPGRADE_PICK: input.push(new Cmd(Cmd.UPGRADE_TOOL, 1)); break;
             case A_ORDER:
                 if (p == Balance.STANCE_HOLD || p == Balance.STANCE_ATTACK) {
                     pendingOrder = p;      // haritadan nokta bekle

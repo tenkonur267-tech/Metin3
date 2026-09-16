@@ -17,6 +17,8 @@ public class Npc {
     public static final int TASK_REPAIR = 2;
     public static final int TASK_HEAL = 3;
     public static final int TASK_GATHER = 4;
+    /** Dünyadan kaynak toplama: ağaç kesme, taş kırma, enkaz ayıklama. */
+    public static final int TASK_HARVEST = 5;
 
     private static final String[] NAMES = {
             "Kerem", "Selim", "Deniz", "Ayşe", "Baran", "Ece", "Tuna", "Mert",
@@ -92,6 +94,9 @@ public class Npc {
     private float taskElapsed;
     /** Yeni seçilen işe en az bu kadar bağlı kalır (işler arasında titremesin). */
     private float taskLock;
+    /** Göreve doğru kaydedilen en iyi yakınlık ve kaç saniyedir ilerleme yok. */
+    private float taskBestDist = Float.MAX_VALUE;
+    private float noProgress;
     public float chatCd;
 
     private final float[] muzzle = new float[3];
@@ -161,6 +166,9 @@ public class Npc {
             case TASK_REPAIR: return "onarıyor";
             case TASK_HEAL: return "iyileştiriyor";
             case TASK_GATHER: return "ganimet topluyor";
+            case TASK_HARVEST: return harvestNode[2] >= 0f
+                    ? Harvest.verbOf((int) harvestNode[2]).toLowerCase(java.util.Locale.ROOT)
+                    : "kaynak topluyor";
             default:
                 return target != null ? "çatışmada"
                         : Balance.STANCE_NAMES[MathX.clampI(stance, 0, Balance.STANCE_COUNT - 1)];
@@ -256,6 +264,7 @@ public class Npc {
             taskTimer = 0.4f;     // her karede hedef değiştirip titremesin
         }
         validateTask(w);
+        giveUpIfUnreachable(w, dt);
 
         float destX = x, destZ = z;
         float arrive = 1.2f;
@@ -400,6 +409,11 @@ public class Npc {
             case TASK_GATHER:
                 say("Ganimeti alıyorum", 2.5f);
                 break;
+            case TASK_HARVEST:
+                say(harvestNode[2] >= 0f
+                        ? Harvest.nameOf((int) harvestNode[2]) + " için gidiyorum"
+                        : "Kaynak toplamaya gidiyorum", 3f);
+                break;
             default:
                 if (target != null) say("Hedef görüldü!", 2f);
                 break;
@@ -412,7 +426,7 @@ public class Npc {
      * bitirmez ve ne yaptığını söyler.
      */
     private void trySelfImprove(GameWorld w) {
-        if (!selfImprove || improveCd > 0f || !w.waves.isPrepare()) return;
+        if (!selfImprove || improveCd > 0f || !!w.isNight()) return;
         improveCd = 8f;
         boolean canWeapon = weaponLevel < Balance.NPC_WEAPON_MAX;
         boolean canLevel = level < Balance.NPC_MAX_LEVEL;
@@ -448,7 +462,7 @@ public class Npc {
             case Balance.STANCE_HOLD: return 14f;
             case Balance.STANCE_DEFEND: return 16f;
             case Balance.STANCE_ATTACK: return 8f;
-            case Balance.STANCE_AUTO: return w.waves.isPrepare() ? 26f : 15f;
+            case Balance.STANCE_AUTO: return !w.isNight() ? 26f : 15f;
             default: return 13f;
         }
     }
@@ -497,7 +511,7 @@ public class Npc {
         workTarget = null;
         lootTarget = null;
         float range = leash(w);
-        boolean prepare = w.waves.isPrepare();
+        boolean prepare = !w.isNight();
         float best = 0f;
 
         if (hasDuty(Balance.DUTY_BUILD)) {
@@ -561,7 +575,33 @@ public class Npc {
                 }
             }
         }
+        if (hasDuty(Balance.DUTY_GATHER)) {
+            // Yerde ganimet yoksa boş durma: ağaç kes, taş kır, enkaz ayıkla.
+            float searchRange = prepare ? 46f : 16f;
+            float d = Harvest.nearest(w, x, z, searchRange, harvestScan);
+            if (d >= 0f && !w.zombieNear(harvestScan[0], harvestScan[1], comfortDistance())) {
+                int res = Harvest.resourceOf((int) harvestScan[2]);
+                // Kasada en az olan kaynağa öncelik ver
+                float scarcity = 1f + 40f / (20f + w.player.res(res));
+                // Yerde hazır duran ganimet her zaman önce toplanır; ağaç
+                // kesmek ancak ortalıkta toplanacak bir şey kalmayınca sıra alır.
+                float score = (26f + scarcity * 5f - d * 0.3f)
+                        * phaseMul(Balance.DUTY_GATHER, prepare)
+                        - rotationPenalty(TASK_HARVEST);
+                if (role == Balance.NPC_SCAVENGER) score += 12f;
+                if (w.pickupFor(this, 30f, comfortDistance() * 0.9f) != null) score -= 45f;
+                if (score > best) {
+                    best = score;
+                    task = TASK_HARVEST;
+                    System.arraycopy(harvestScan, 0, harvestNode, 0, 5);
+                    lootTarget = null;
+                    workTarget = null;
+                    planTarget = null;
+                }
+            }
+        }
         if (best <= 0f) task = TASK_NONE;
+        if (task != TASK_HARVEST) harvestProgress = 0f;
         if (task != TASK_GATHER && claimed != null) {
             if (claimed.claimedBy == this) claimed.claimedBy = null;
             claimed = null;
@@ -574,12 +614,65 @@ public class Npc {
         if (task != previous) {
             taskElapsed = 0f;
             taskLock = task == TASK_NONE ? 0f : 4.5f;
+            taskBestDist = Float.MAX_VALUE;
+            noProgress = 0f;
         }
     }
 
     private Pickup claimed;
 
+    /** Gidilen kaynak düğümü: {x, z, tür, px, pz}; tür < 0 ise yok. */
+    public final float[] harvestNode = new float[]{0f, 0f, -1f, 0f, 0f};
+    private final float[] harvestScan = new float[5];
+    /** Toplama ilerlemesi 0..1. */
+    public float harvestProgress;
+    /** Kaç kaynak düğümü topladı (ekip panelinde gösterilir). */
+    public int harvested;
+
     private float healX, healZ;
+
+    /**
+     * Göreve doğru ilerleyemiyorsak vazgeçer. Duvarın arkasına düşen bir
+     * ganimet ya da surun ötesindeki bir ağaç için yoldaş sonsuza kadar
+     * bekleyemez; hedefi bir süre kara listeye alıp başka işe geçer.
+     */
+    private void giveUpIfUnreachable(GameWorld w, float dt) {
+        if (task == TASK_NONE) {
+            noProgress = 0f;
+            taskBestDist = Float.MAX_VALUE;
+            return;
+        }
+        float[] tp = taskPoint(w);
+        float d = MathX.dist(x, z, tp[0], tp[1]);
+        if (d <= taskRange(w)) {
+            noProgress = 0f;               // vardık, iş başında
+            taskBestDist = d;
+            return;
+        }
+        if (d < taskBestDist - 0.25f) {
+            taskBestDist = d;
+            noProgress = 0f;
+            return;
+        }
+        noProgress += dt;
+        if (noProgress < 3f) return;
+
+        // 3 saniyedir yaklaşamıyoruz: hedefe ulaşılamıyor.
+        if (task == TASK_GATHER && lootTarget != null) {
+            lootTarget.unreachable = 12f;
+            if (lootTarget.claimedBy == this) lootTarget.claimedBy = null;
+            if (claimed == lootTarget) claimed = null;
+            lootTarget = null;
+            say("Buna ulaşamıyorum, başka işe bakıyorum", 2.5f);
+        } else if (task == TASK_HARVEST) {
+            harvestNode[2] = -1f;
+            harvestProgress = 0f;
+        }
+        task = TASK_NONE;
+        taskLock = 0f;
+        noProgress = 0f;
+        taskBestDist = Float.MAX_VALUE;
+    }
 
     private void validateTask(GameWorld w) {
         switch (task) {
@@ -588,6 +681,15 @@ public class Npc {
                 break;
             case TASK_REPAIR:
                 if (workTarget == null || !workTarget.alive || workTarget.hp >= workTarget.maxHp) {
+                    task = TASK_NONE;
+                }
+                break;
+            case TASK_HARVEST:
+                if (harvestNode[2] < 0f
+                        || w.isDepleted(Harvest.key((int) harvestNode[3], (int) harvestNode[4]))
+                        || w.zombieNear(harvestNode[0], harvestNode[1], comfortDistance() * 0.8f)) {
+                    harvestNode[2] = -1f;
+                    harvestProgress = 0f;
                     task = TASK_NONE;
                 }
                 break;
@@ -628,6 +730,10 @@ public class Npc {
                 taskPointTmp[0] = lootTarget.x;
                 taskPointTmp[1] = lootTarget.z;
                 break;
+            case TASK_HARVEST:
+                taskPointTmp[0] = harvestNode[0];
+                taskPointTmp[1] = harvestNode[1];
+                break;
             default:
                 taskPointTmp[0] = x;
                 taskPointTmp[1] = z;
@@ -642,6 +748,7 @@ public class Npc {
             case TASK_REPAIR: return 2.6f + (workTarget != null ? workTarget.footprintRadius() : 0f);
             case TASK_HEAL: return 3.0f;
             case TASK_GATHER: return 1.0f;
+            case TASK_HARVEST: return Harvest.REACH;
             default: return 1.5f;
         }
     }
@@ -690,6 +797,26 @@ public class Npc {
                 if (workGlow > 0f && MathX.chance(dt * 4f)) {
                     w.particles.spawn(x, 1.4f, z, 0f, 1.2f, 0f, 0xE57373, 0.7f,
                             0.1f, 0.02f, 0.5f, 0.3f, 1f, 1);
+                }
+                break;
+            }
+            case TASK_HARVEST: {
+                int prop = (int) harvestNode[2];
+                int res = Harvest.resourceOf(prop);
+                float rate = workRate(Balance.DUTY_GATHER)
+                        / Math.max(0.1f, Harvest.workOf(prop) * 1.35f);
+                harvestProgress += dt * rate;
+                workGlow = 1f;
+                if (MathX.chance(dt * 6f)) {
+                    w.particles.dust(harvestNode[0], 0.8f, harvestNode[1], 2);
+                }
+                if (harvestProgress >= 1f) {
+                    harvestProgress = 0f;
+                    w.collectNode(prop, (int) harvestNode[3], (int) harvestNode[4],
+                            harvestNode[0], harvestNode[1], true);
+                    harvested++;
+                    harvestNode[2] = -1f;
+                    task = TASK_NONE;
                 }
                 break;
             }
@@ -926,6 +1053,8 @@ public class Npc {
     }
 
     private boolean blocked(GameWorld w, float nx, float nz) {
+        // Şehirlerdeki binalar yoldaşlar için de katı engeldir.
+        if (WorldGen.blocked(nx, nz, 0.45f) && !WorldGen.blocked(x, z, 0.45f)) return true;
         int gx = BuildGrid.worldToCell(nx), gz = BuildGrid.worldToCell(nz);
         Structure s = w.grid.at(gx, gz);
         if (s == null || !s.blocks()) return false;

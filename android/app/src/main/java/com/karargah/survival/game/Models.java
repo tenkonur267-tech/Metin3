@@ -20,6 +20,12 @@ public class Models {
     public static final int BONE_EXTRA = 7;
 
     public Mesh ground, basePlatform, gridOverlay, unitBox, unitCell, ringFlat, coreOrb, portal;
+    /** Açık dünya zemini: beyaz kare, her parça kendi biyom rengiyle boyanır. */
+    public Mesh groundTile;
+    /** Şehir binası: taban 1x1, yüksekliği 1; çizerken ölçeklenir. */
+    public Mesh cityBuilding;
+    /** İnşa modunda tek hücrelik ızgara çerçevesi. */
+    public Mesh gridCell;
     public Mesh rock, deadTree, barrel, crate, grassTuft;
     public final Mesh[][] structBase = new Mesh[Balance.STRUCTS.length][6];
     /** Dönen kule başlıkları: [tür][seviye] — her seviyede farklı görünür. */
@@ -45,35 +51,19 @@ public class Models {
     // ---- arazi ----------------------------------------------------------
 
     private void buildGround() {
-        MeshBuilder b = new MeshBuilder();
-        int n = 60;
-        float cell = Balance.WORLD_HALF * 2f / n;
-        for (int gz = 0; gz < n; gz++) {
-            for (int gx = 0; gx < n; gx++) {
-                float x0 = -Balance.WORLD_HALF + gx * cell;
-                float z0 = -Balance.WORLD_HALF + gz * cell;
-                float cx = x0 + cell * 0.5f, cz = z0 + cell * 0.5f;
-                float r = MathX.len(cx, cz);
-                float noise = MathX.smoothNoise(gx * 0.32f, gz * 0.32f);
-                int col;
-                if (r < Balance.BUILD_RADIUS) {
-                    col = MathX.mixColor(0x4A4E44, 0x565A4E, noise);
-                } else {
-                    col = MathX.mixColor(0x333B2C, 0x46452F, noise);
-                }
-                if (noise > 0.78f) col = MathX.mixColor(col, 0x6B6A52, 0.5f);
-                b.color(col);
-                b.addQuad(x0, 0, z0 + cell, x0 + cell, 0, z0 + cell,
-                        x0 + cell, 0, z0, x0, 0, z0, 0, 1, 0);
-            }
-        }
-        ground = b.build();
+        // Dünya 100.000 x 100.000 birim: tek bir dev ağ olamaz. Bunun yerine
+        // beyaz bir kare üretip her parçayı kendi biyom rengiyle boyuyoruz.
+        MeshBuilder t = new MeshBuilder();
+        float h = WorldRenderer.CHUNK * 0.5f;
+        t.color(0xFFFFFF);
+        t.addQuad(-h, 0f, h, h, 0f, h, h, 0f, -h, -h, 0f, -h, 0, 1, 0);
+        groundTile = t.build();
 
         // üs zemini: beton daire + kenar şeridi
         MeshBuilder p = new MeshBuilder();
-        p.color(0x56564C).translate(0f, 0.02f, 0f).disc(Balance.BUILD_RADIUS, 48);
+        p.color(0x56564C).translate(0f, 0.02f, 0f).disc(Balance.BUILD_RADIUS, 64);
         p.resetTransform();
-        int seg = 48;
+        int seg = 64;
         for (int i = 0; i < seg; i++) {
             float a0 = MathX.TAU * i / seg, a1 = MathX.TAU * (i + 1) / seg;
             float r0 = Balance.BUILD_RADIUS - 1.4f, r1 = Balance.BUILD_RADIUS;
@@ -85,28 +75,25 @@ public class Models {
         }
         basePlatform = p.build();
 
-        // inşa ızgarası (yalnızca inşa modunda çizilir)
+        // Şehir binası: yüzleri hafif farklı tonda bir kutu (taban 1x1, boy 1)
+        MeshBuilder bd = new MeshBuilder();
+        bd.shade(0xFFFFFF, 0.14f).push().translate(0f, 0.5f, 0f).box(1f, 1f, 1f).pop();
+        bd.color(0xBDBDBD).push().translate(0f, 1.01f, 0f).box(1.06f, 0.03f, 1.06f).pop();
+        cityBuilding = bd.build();
+
+        // İnşa ızgarası: tek hücrelik çerçeve, gerektiği kadar çizilir
         MeshBuilder g = new MeshBuilder();
         g.color(0xBBD7FF);
         float pad = 0.09f;
-        for (int gz = 0; gz < BuildGrid.N; gz++) {
-            for (int gx = 0; gx < BuildGrid.N; gx++) {
-                if (!BuildGrid.inBuildArea(gx, gz)) continue;
-                float cx = BuildGrid.cellToWorld(gx), cz = BuildGrid.cellToWorld(gz);
-                float h = Balance.CELL * 0.5f - pad;
-                float t = 0.055f;
-                // dört ince kenar çizgisi
-                g.addQuad(cx - h, 0.05f, cz + h, cx + h, 0.05f, cz + h,
-                        cx + h, 0.05f, cz + h - t, cx - h, 0.05f, cz + h - t, 0, 1, 0);
-                g.addQuad(cx - h, 0.05f, cz - h + t, cx + h, 0.05f, cz - h + t,
-                        cx + h, 0.05f, cz - h, cx - h, 0.05f, cz - h, 0, 1, 0);
-                g.addQuad(cx - h, 0.05f, cz + h, cx - h + t, 0.05f, cz + h,
-                        cx - h + t, 0.05f, cz - h, cx - h, 0.05f, cz - h, 0, 1, 0);
-                g.addQuad(cx + h - t, 0.05f, cz + h, cx + h, 0.05f, cz + h,
-                        cx + h, 0.05f, cz - h, cx + h - t, 0.05f, cz - h, 0, 1, 0);
-            }
-        }
-        gridOverlay = g.build();
+        float ch = Balance.CELL * 0.5f - pad;
+        float th = 0.055f;
+        g.addQuad(-ch, 0.05f, ch, ch, 0.05f, ch, ch, 0.05f, ch - th, -ch, 0.05f, ch - th, 0, 1, 0);
+        g.addQuad(-ch, 0.05f, -ch + th, ch, 0.05f, -ch + th, ch, 0.05f, -ch, -ch, 0.05f, -ch, 0, 1, 0);
+        g.addQuad(-ch, 0.05f, ch, -ch + th, 0.05f, ch, -ch + th, 0.05f, -ch, -ch, 0.05f, -ch, 0, 1, 0);
+        g.addQuad(ch - th, 0.05f, ch, ch, 0.05f, ch, ch, 0.05f, -ch, ch - th, 0.05f, -ch, 0, 1, 0);
+        gridCell = g.build();
+        gridOverlay = gridCell;
+        ground = groundTile;
     }
 
     private void buildProps() {

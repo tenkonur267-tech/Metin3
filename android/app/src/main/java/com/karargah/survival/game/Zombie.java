@@ -44,6 +44,19 @@ public class Zombie {
     /** Güçlendirilmiş (elit) zombiler: parlayan renk, fazladan can. */
     public boolean elite;
 
+    /**
+     * Dalga zombisi değil, dünyada kendi başına gezen zombi. Üsse yürümez;
+     * doğduğu bölgede dolaşır, oyuncu ya da yoldaş yaklaşınca saldırır.
+     */
+    public boolean roamer;
+    public float homeX, homeZ;
+    private float wanderX, wanderZ, wanderTimer;
+
+    // Sıkışma kurtarma: yürümeye çalıştığı hâlde yerinden oynamıyorsa
+    // (çoğunlukla iki yapının arasındaki köşe kapanı) önündeki yapıyı döver.
+    private float progressTimer;
+    private float progressX, progressZ;
+
     public void init(int type, float x, float z, int wave, boolean elite) {
         this.type = type;
         this.def = Balance.zombie(type);
@@ -51,11 +64,11 @@ public class Zombie {
         this.z = z;
         this.y = 0f;
         this.elite = elite;
-        float hpScale = Balance.waveHpScale(wave) * (elite ? 2.4f : 1f);
+        float hpScale = Balance.dayHpScale(wave) * (elite ? 2.4f : 1f);
         this.maxHp = def.hp * hpScale;
         this.hp = maxHp;
         this.speed = def.speed * (elite ? 1.12f : 1f) * MathX.rnd(0.92f, 1.08f);
-        this.damage = def.damage * Balance.waveDamageScale(wave) * (elite ? 1.5f : 1f);
+        this.damage = def.damage * Balance.dayDamageScale(wave) * (elite ? 1.5f : 1f);
         this.xpValue = Math.round(def.xp * (elite ? 2.2f : 1f));
         this.scrapValue = Math.round(def.scrap * (elite ? 2.4f : 1f));
         this.scale = (elite ? 1.18f : 1f) * MathX.rnd(0.94f, 1.06f);
@@ -68,6 +81,15 @@ public class Zombie {
         this.targetStruct = null;
         this.targetNpc = null;
         this.rangedLocked = false;
+        this.roamer = false;
+        this.homeX = x;
+        this.homeZ = z;
+        this.wanderX = x;
+        this.wanderZ = z;
+        this.wanderTimer = 0f;
+        this.progressTimer = 0f;
+        this.progressX = x;
+        this.progressZ = z;
         this.slowFactor = 1f;
         this.slowTimer = 0f;
         this.burnTimer = 0f;
@@ -194,6 +216,8 @@ public class Zombie {
     private void chooseTarget(GameWorld w, float dt) {
         Player p = w.player;
         float aggro = type == Balance.Z_RUNNER ? 14f : (isBoss() ? 12f : 8.5f);
+        // Gezginler avlanır: daha uzaktan fark eder, gece daha da uyanıktır.
+        if (roamer) aggro = aggro * 1.9f + w.nightFactor * 6f;
 
         // En yakın canlı dost: oyuncu ya da yoldaş.
         float dp = p.alive ? MathX.dist(x, z, p.x, p.z) : Float.MAX_VALUE;
@@ -226,15 +250,24 @@ public class Zombie {
         targetingPlayer = false;
         targetNpc = null;
 
-        // Öfke modunda uzaktan yapı dövmek bırakılır; herkes reaktöre yürür.
-        boolean rage = w.waves.rage;
-        if (rage && rangedLocked) {
-            rangedLocked = false;
-            targetStruct = null;
+        if (roamer) {
+            // Gezgin üsse yürümez; önündeki yapıya çarparsa döver, yoksa gezer.
+            if (targetStruct != null && !targetStruct.alive) targetStruct = null;
+            if (targetStruct != null) {
+                float d = MathX.dist(x, z, targetStruct.x, targetStruct.z);
+                if (d > targetStruct.footprintRadius() + radius() + 1.4f) {
+                    targetStruct = null;
+                } else {
+                    state = ST_ATTACK;
+                    return;
+                }
+            }
+            state = ST_WALK;
+            return;
         }
 
         // Menzilli zombiler yakın yapıyı uzaktan döver.
-        if (def.rangedRange > 0f && !rage) {
+        if (def.rangedRange > 0f) {
             Structure s = w.nearestStructure(x, z, def.rangedRange);
             if (s != null) {
                 targetStruct = s;
@@ -307,9 +340,16 @@ public class Zombie {
     private void move(GameWorld w, float dt) {
         if (stunTimer > 0f) return;
 
-        int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
         float dirX, dirZ;
+        if (roamer && !targetingPlayer && targetNpc == null) {
+            wanderDir(w, dt);
+            dirX = wanderX - x;
+            dirZ = wanderZ - z;
+            stepMove(w, dirX, dirZ, dt, 0.55f);
+            return;
+        }
 
+        int gx = BuildGrid.worldToCell(x), gz = BuildGrid.worldToCell(z);
         int best = w.flow.bestNeighbor(gx, gz);
         if (best >= 0) {
             float bx = BuildGrid.cellToWorld(FlowField.cellX(best));
@@ -355,14 +395,22 @@ public class Zombie {
             }
         }
 
-        float sp = speed * slowFactor * (w.waves.rage ? 1.55f : 1f);
+        // Kanlı ay gecelerinde baskıncılar belirgin biçimde hızlıdır.
+        float sp = speed * slowFactor * (w.threat.bloodMoon && !roamer ? 1.35f : 1f);
+        dt0 = dt;
         float vx = dirX * sp + pushX + knockX;
         float vz = dirZ * sp + pushZ + knockZ;
         pushX = 0f;
         pushZ = 0f;
 
-        float nx = x + vx * dt;
-        float nz = z + vz * dt;
+        applyStep(w, vx * dt, vz * dt, sp, dirX, dirZ, l > 1e-4f);
+    }
+
+    /** Hız vektörünü uygular: yapı ve şehir binalarıyla çarpışmayı kaydırır. */
+    private void applyStep(GameWorld w, float dx, float dz, float sp,
+                           float dirX, float dirZ, boolean turn) {
+        float nx = x + dx;
+        float nz = z + dz;
 
         // yapılarla çarpışma: eksen eksen kaydır
         if (!blockedAt(w, nx, z)) x = nx;
@@ -372,13 +420,82 @@ public class Zombie {
         x = MathX.clamp(x, -half, half);
         z = MathX.clamp(z, -half, half);
 
-        animPhase += dt * (3.4f + sp * 1.5f);
-        if (l > 1e-4f) {
-            yaw = MathX.approachAngle(yaw, (float) Math.atan2(dirX, dirZ), dt * 6f);
+        animPhase += dt0 * (3.4f + sp * 1.5f);
+        if (turn) {
+            yaw = MathX.approachAngle(yaw, (float) Math.atan2(dirX, dirZ), dt0 * 6f);
+        }
+        checkStuck(w);
+    }
+
+    /**
+     * Yürümeye çalışıp yerinden oynayamıyorsa kurtarır. Köşe kapanı gerçek bir
+     * durum: iki yapının köşesi arasındaki çapraz geçit hem X hem Z ekseninde
+     * kapalı görünür, zombi sonsuza kadar orada kalır ve dalga hiç bitmez.
+     * Çözüm basit ve mantıklı: takıldıysan önündeki yapıyı yık.
+     */
+    private void checkStuck(GameWorld w) {
+        progressTimer += dt0;
+        if (progressTimer < 1.1f) return;
+        float moved = MathX.dist(progressX, progressZ, x, z);
+        progressTimer = 0f;
+        progressX = x;
+        progressZ = z;
+        if (moved > 0.4f) return;
+
+        if (roamer) {
+            wanderTimer = 0f;          // gezgin yalnızca başka bir yön dener
+            return;
+        }
+        Structure blocker = w.blockerNear(x, z);
+        if (blocker != null) {
+            targetStruct = blocker;
+            rangedLocked = false;
+            state = ST_ATTACK;
         }
     }
 
+    /** Gezgin için basit adım: hedefe doğru yürü, engele çarpınca kaydır. */
+    private void stepMove(GameWorld w, float dirX, float dirZ, float dt, float speedMul) {
+        float l = MathX.len(dirX, dirZ);
+        if (l > 1e-4f) {
+            dirX /= l;
+            dirZ /= l;
+        }
+        float sp = speed * slowFactor * speedMul;
+        dt0 = dt;
+        applyStep(w, (dirX * sp + pushX + knockX) * dt,
+                (dirZ * sp + pushZ + knockZ) * dt, sp, dirX, dirZ, l > 1e-4f);
+        pushX = 0f;
+        pushZ = 0f;
+    }
+
+    /** Gezginin bir sonraki dolaşma noktası (bölgesinden çok uzaklaşmaz). */
+    private void wanderDir(GameWorld w, float dt) {
+        wanderTimer -= dt;
+        float d = MathX.dist(x, z, wanderX, wanderZ);
+        if (wanderTimer <= 0f || d < 1.6f) {
+            wanderTimer = MathX.rnd(3.5f, 8f);
+            float a = MathX.rnd(0f, MathX.TAU);
+            float r = MathX.rnd(4f, 17f);
+            wanderX = homeX + (float) Math.cos(a) * r;
+            wanderZ = homeZ + (float) Math.sin(a) * r;
+            // Binanın içini hedef seçme
+            if (WorldGen.blocked(wanderX, wanderZ, radius())) {
+                wanderX = homeX;
+                wanderZ = homeZ;
+            }
+        }
+    }
+
+    /** applyStep/animasyon için o karenin dt'si. */
+    private float dt0 = 1f / 60f;
+
     private boolean blockedAt(GameWorld w, float nx, float nz) {
+        // Şehir binalarının içinden geçilemez (üssün kendi ızgarası ayrı).
+        if (WorldGen.blocked(nx, nz, radius() * 0.6f)
+                && !WorldGen.blocked(x, z, radius() * 0.6f)) {
+            return true;
+        }
         int gx = BuildGrid.worldToCell(nx), gz = BuildGrid.worldToCell(nz);
         Structure s = w.grid.at(gx, gz);
         if (s == null || !s.blocks()) return false;

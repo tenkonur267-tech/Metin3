@@ -62,7 +62,7 @@ public class Advisor {
     /** En öncelikli sorunu seçer. */
     private int evaluate(GameWorld w) {
         Player p = w.player;
-        boolean prepare = w.waves.isPrepare();
+        boolean prepare = !w.isNight();
 
         if (w.core != null && w.core.hpFraction() < 0.55f) return TIP_CORE;
 
@@ -90,12 +90,12 @@ public class Advisor {
             if (s.type == Balance.S_WALL) walls++;
         }
         if (damaged >= 3 && prepare) return TIP_REPAIR;
-        if (walls < 12 && w.waves.wave >= 2 && prepare) return TIP_WALLS;
+        if (walls < 12 && w.dayCount >= 2 && prepare) return TIP_WALLS;
 
         int weak = weakestSide(w);
-        if (weak >= 0 && prepare && w.waves.wave >= 3) return TIP_WEAK_SIDE;
+        if (weak >= 0 && prepare && w.dayCount >= 3) return TIP_WEAK_SIDE;
 
-        if (!prepare && Balance.isBossWave(w.waves.wave) && w.waves.phaseTime < 12f) return TIP_BOSS;
+        if (!prepare && w.threat.bloodMoon) return TIP_BOSS;
 
         if (p.unlocked[Balance.W_PISTOL] && lowAmmo(p)) return TIP_AMMO;
         if (p.skillPoints > 0) return TIP_SKILL;

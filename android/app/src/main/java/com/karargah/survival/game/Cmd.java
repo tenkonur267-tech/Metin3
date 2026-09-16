@@ -11,7 +11,7 @@ public class Cmd {
     public static final int SELL_SELECTED = 7;
     public static final int REPAIR_SELECTED = 8;
     public static final int REPAIR_ALL = 9;
-    public static final int START_WAVE = 10;
+    // 10 numara (START_WAVE) kaldırıldı: dalga sistemi yok.
     public static final int SKILL_UP = 11;
     public static final int WEAPON_UP = 12;
     public static final int BUY_WEAPON = 13;
@@ -31,6 +31,10 @@ public class Cmd {
     public static final int CANCEL_ALL_PLANS = 27;
     public static final int TOGGLE_AUTOBUILD = 28;
     public static final int SELF_IMPROVE = 29;
+    /** Kaynak toplamayı başlat/bitir (a = 1 başla, 0 bırak). */
+    public static final int HARVEST = 30;
+    /** Alet geliştir (a = 0 balta, 1 kazma). */
+    public static final int UPGRADE_TOOL = 31;
 
     public final int op;
     public final int a, b, c;
