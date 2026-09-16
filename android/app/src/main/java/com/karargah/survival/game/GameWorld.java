@@ -1328,6 +1328,8 @@ public class GameWorld {
         if (lootTimer > 0f || !player.alive || gameOver) return;
         lootTimer = 0.45f;
 
+        if (lootLandmark()) return;
+
         float d = WorldGen.nearestCity(player.x, player.z, cityScratch);
         if (d < 0f || d > cityScratch[2]) return;
 
@@ -1343,10 +1345,48 @@ public class GameWorld {
                 long key = blockKey(cx, cz, i, j);
                 if (!lootedBlocks.add(key)) continue;
                 openLootCache(lootScratch[0], lootScratch[1], i, j);
+                String city = WorldGen.nearestCityName(player.x, player.z, 600f);
+                message((city != null ? city + " — " : "") + "sandık yağmalandı", 1.6f);
                 return;
             }
         }
     }
+
+    /**
+     * Tasarlanmış mekânlarda yağma. Askeri üs ve havaalanı en zengin, kamp ve
+     * benzinlik en fakir; her sandık yalnızca bir kez açılır.
+     *
+     * @return sandık açıldıysa true
+     */
+    private boolean lootLandmark() {
+        float d = Landmark.nearest(player.x, player.z, markScratch);
+        if (d < 0f || d > markScratch[2] + 6f) return false;
+        int type = (int) markScratch[3];
+        int n = Landmark.partCount(type);
+        for (int i = 0; i < n; i++) {
+            if (!Landmark.lootAt(type, markScratch[0], markScratch[1], i, lootScratch)) {
+                continue;
+            }
+            if (MathX.dist(player.x, player.z, lootScratch[0], lootScratch[1]) > 3.4f) {
+                continue;
+            }
+            long key = markKey(markScratch[0], markScratch[1], i);
+            if (!lootedBlocks.add(key)) continue;
+            openLootCache(lootScratch[0], lootScratch[1], i, type,
+                    Landmark.lootRichness(type));
+            message(Landmark.nameAt(markScratch[0], markScratch[1], type)
+                    + " — sandık yağmalandı", 1.8f);
+            return true;
+        }
+        return false;
+    }
+
+    private static long markKey(float cx, float cz, int part) {
+        long a = ((long) (int) cx << 21) ^ (int) cz;
+        return 0x4000000000000000L ^ (a << 8) ^ (part & 0xFFL);
+    }
+
+    private final float[] markScratch = new float[4];
 
     private static long blockKey(float cx, float cz, int bx, int bz) {
         long a = ((long) (int) cx << 20) ^ (int) cz;
@@ -1355,10 +1395,15 @@ public class GameWorld {
 
     /** Bir sandığı açar ve içinden çıkanları yere döker. */
     private void openLootCache(float x, float z, int bx, int bz) {
+        openLootCache(x, z, bx, bz, 1f);
+    }
+
+    /** @param richness mekânın zenginlik çarpanı (şehir adaları için 1). */
+    private void openLootCache(float x, float z, int bx, int bz, float richness) {
         int roll = WorldGen.hash(bx, bz, 777);
         int food = 1 + ((roll >>> 3) & 1);
         int water = 1 + ((roll >>> 5) & 1);
-        int scrap = 25 + ((roll >>> 7) & 63);
+        int scrap = Math.round((25 + ((roll >>> 7) & 63)) * richness);
         for (int i = 0; i < food; i++) {
             spawnPickup(Pickup.FOOD, Balance.FOOD_RESTORE, x, z);
         }
@@ -1366,10 +1411,16 @@ public class GameWorld {
             spawnPickup(Pickup.WATER, Balance.WATER_RESTORE, x, z);
         }
         spawnPickup(Pickup.SCRAP, scrap, x, z);
-        if (((roll >>> 11) & 7) == 0) spawnPickup(Pickup.CORE, 1, x, z);
+        if (((roll >>> 11) & 7) == 0 || richness > 1.6f) {
+            spawnPickup(Pickup.CORE, richness > 1.9f ? 2 : 1, x, z);
+        }
+        // Zengin mekânlarda fazladan malzeme de çıkar
+        if (richness > 1.3f) {
+            addResource(Balance.R_STONE, Math.round(12 * richness), false);
+            addResource(Balance.R_FIBER, Math.round(6 * richness), false);
+        }
         particles.dust(x, 0.5f, z, 12);
         audio.playPickup();
-        message("Sandık yağmalandı", 1.6f);
     }
 
     private final float[] cityScratch = new float[3];

@@ -30,6 +30,8 @@ public class WorldRenderer {
 
     private final float[] cityTmp = new float[3];
     private final float[] buildTmp = new float[5];
+    private final float[] markTmp = new float[4];
+    private final float[] partTmp = new float[6];
 
     public Renderer3D renderer() {
         return r;
@@ -40,8 +42,16 @@ public class WorldRenderer {
     }
 
     public void init() {
+        init(null);
+    }
+
+    /**
+     * @param assets varsa {@code assets/models/} altındaki hazır model paketi
+     *               kullanılır; yoksa her şey kodla üretilir.
+     */
+    public void init(android.content.res.AssetManager assets) {
         r.init();
-        models.build();
+        models.build(assets);
     }
 
     public void resize(int w, int h) {
@@ -57,6 +67,7 @@ public class WorldRenderer {
 
         drawGround(w);
         drawCity(w);
+        drawLandmark(w);
         drawDecor(w);
         drawStructures(w, buildMode);
         drawZombies(w);
@@ -141,6 +152,27 @@ public class WorldRenderer {
         r.setDepthOffset(-1f, -2f);
         r.draw(models.basePlatform, model, 1f, 1f, 1f, 1f);
         r.setDepthOffset(0f, 0f);
+    }
+
+    /**
+     * Tasarlanmış mekânların yapıları: askeri üssün kışlaları ve kuleleri,
+     * hastanenin kanatları, barajın gövdesi. Hepsi koordinattan hesaplanır.
+     */
+    private void drawLandmark(GameWorld w) {
+        float d = Landmark.nearest(r.camX, r.camZ, markTmp);
+        if (d < 0f || d > markTmp[2] + CITY_RANGE) return;
+        int type = (int) markTmp[3];
+        int n = Landmark.partCount(type);
+        for (int i = 0; i < n; i++) {
+            Landmark.partAt(type, markTmp[0], markTmp[1], i, partTmp);
+            float span = Math.max(partTmp[2], partTmp[3]);
+            if (!visible(w, partTmp[0], partTmp[1], span)) continue;
+            // Ton: 0 koyu beton, 1 açık metal; her parça hafifçe farklı
+            float tone = partTmp[5] * (0.88f + WorldGen.rand01(i, type, 911) * 0.24f);
+            M4.trs(model, partTmp[0], 0f, partTmp[1], 0f,
+                    partTmp[2] * 2f, partTmp[4], partTmp[3] * 2f);
+            r.draw(models.cityBuilding, model, tone * 0.88f, tone * 0.9f, tone * 0.86f, 1f);
+        }
     }
 
     /** Şehirlerin binaları: adalara göre deterministik, hiç saklanmaz. */

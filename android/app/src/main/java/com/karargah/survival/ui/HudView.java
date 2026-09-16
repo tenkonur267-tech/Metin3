@@ -17,6 +17,7 @@ import com.karargah.survival.game.FloatingText;
 import com.karargah.survival.game.GameWorld;
 import com.karargah.survival.game.Harvest;
 import com.karargah.survival.game.InputState;
+import com.karargah.survival.game.Landmark;
 import com.karargah.survival.game.Npc;
 import com.karargah.survival.game.Pickup;
 import com.karargah.survival.game.Player;
@@ -250,8 +251,10 @@ public class HudView extends View {
                 Paint.Align.LEFT);
 
         // biyom / şehir, gün ve saat
+        String mark = Landmark.nearestName(p.x, p.z, 200f);
         String city = WorldGen.nearestCityName(p.x, p.z, 520f);
-        String place = city != null ? city : WorldGen.biomeName(gw.biome);
+        String place = mark != null ? mark
+                : (city != null ? city : WorldGen.biomeName(gw.biome));
         ui.labelShadow(c, place + "  ·  " + gw.dayCount + ". gün "
                         + gw.clockText() + (gw.isNight() ? "  ☾" : "  ☀"),
                 pad + 12 * sc, top + 73 * sc, 12 * sc,
@@ -621,6 +624,17 @@ public class HudView extends View {
         c.drawCircle(cx - px * scale, cy - pz * scale, Balance.BUILD_RADIUS * scale, ui.stroke);
 
         ui.fill.setStyle(Paint.Style.FILL);
+        // yakındaki tasarlanmış mekân: sarı çerçeve ve merkez
+        float md = Landmark.nearest(px, pz, mapMark);
+        if (md >= 0f && md < MAP_RANGE + mapMark[2]) {
+            ui.stroke.setColor(0x66FFD54F);
+            ui.stroke.setStrokeWidth(1.6f * sc);
+            c.drawCircle(cx + (mapMark[0] - px) * scale, cy + (mapMark[1] - pz) * scale,
+                    mapMark[2] * scale, ui.stroke);
+            ui.fill.setColor(0xFFFFD54F);
+            c.drawCircle(cx + (mapMark[0] - px) * scale, cy + (mapMark[1] - pz) * scale,
+                    3f * sc, ui.fill);
+        }
         // yapılar
         for (int i = 0; i < gw.structures.size(); i++) {
             Structure s;
@@ -702,6 +716,8 @@ public class HudView extends View {
             c.drawText("ÜS " + Math.round(dBase) + "m", l + 6 * sc, t + size - 6 * sc, ui.text);
         }
     }
+
+    private final float[] mapMark = new float[4];
 
     /** Nokta küçük haritanın kapsadığı alanda mı? */
     private static boolean onMap(float x, float z, float px, float pz) {

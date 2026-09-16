@@ -20,8 +20,11 @@ public class GameSurface extends GLSurfaceView implements GLSurfaceView.Renderer
     private long lastNanos;
     private boolean gameOverNotified;
 
+    private final android.content.res.AssetManager assets;
+
     public GameSurface(Context ctx, GameWorld world, HudView hud, InputState input) {
         super(ctx);
+        this.assets = ctx.getAssets();
         this.world = world;
         this.hud = hud;
         this.input = input;
@@ -37,7 +40,7 @@ public class GameSurface extends GLSurfaceView implements GLSurfaceView.Renderer
         // Bağlam kaybolmuş olabilir: tüm GL kaynaklarını yeniden kur.
         world.particles.disposeGl();
         renderer = new WorldRenderer();
-        renderer.init();
+        renderer.init(assets);
         lastNanos = System.nanoTime();
     }
 

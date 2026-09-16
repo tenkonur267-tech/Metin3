@@ -40,12 +40,64 @@ public class Models {
     public Mesh scrapPickup, corePickup;
 
     public void build() {
+        build(null);
+    }
+
+    /**
+     * Bütün modelleri kurar. {@code assets} verilmişse önce
+     * {@code assets/models/} altındaki hazır paket denenir; orada olmayan her
+     * model kodla üretilenden gelir. Böylece paket kısmi olabilir ve paket hiç
+     * yoksa oyun aynen çalışmaya devam eder.
+     */
+    public void build(android.content.res.AssetManager assets) {
         buildGround();
         buildProps();
         buildStructures();
         buildCharacters();
         buildWeapons();
         buildHelpers();
+        loadModelPack(assets);
+    }
+
+    /** Hazır model paketinde aranan dosyalar ve karşılık geldikleri modeller. */
+    private static final String[] PACK_FILES = {
+            "rock", "tree", "barrel", "crate", "grass", "building"
+    };
+
+    /** Paketten kaç model yüklendi (arayüz/testler için). */
+    public int packedModels;
+
+    /**
+     * Varsa hazır model paketini yükler. Paket bulunamazsa ya da bir model
+     * bozuksa sessizce kodla üretilen model kalır — oyun asla yükleme yüzünden
+     * açılmamazlık etmez.
+     */
+    private void loadModelPack(android.content.res.AssetManager assets) {
+        packedModels = 0;
+        if (assets == null) return;
+        for (String name : PACK_FILES) {
+            String path = "models/" + name + ".obj";
+            if (!com.karargah.survival.engine.ObjLoader.exists(assets, path)) continue;
+            try {
+                Mesh m = com.karargah.survival.engine.ObjLoader.load(assets, path, 1f, 0xFFFFFF);
+                if (!assign(name, m)) continue;
+                packedModels++;
+            } catch (RuntimeException e) {
+                // Bozuk model: kodla üretilen sürümle devam.
+            }
+        }
+    }
+
+    private boolean assign(String name, Mesh m) {
+        switch (name) {
+            case "rock": rock = m; return true;
+            case "tree": deadTree = m; return true;
+            case "barrel": barrel = m; return true;
+            case "crate": crate = m; return true;
+            case "grass": grassTuft = m; return true;
+            case "building": cityBuilding = m; return true;
+            default: return false;
+        }
     }
 
     // ---- arazi ----------------------------------------------------------

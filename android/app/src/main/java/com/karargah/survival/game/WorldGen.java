@@ -265,6 +265,8 @@ public final class WorldGen {
 
     /** Verilen yarıçaptaki bir gövde bu noktada binaya giriyor mu? */
     public static boolean blocked(float x, float z, float radius) {
+        // Tasarlanmış mekânların binaları da katı engeldir.
+        if (Landmark.blocked(x, z, radius)) return true;
         float[] b = scratchBlocked;
         if (!buildingAt(x, z, b)) return false;
         return Math.abs(x - b[0]) < b[2] + radius && Math.abs(z - b[1]) < b[3] + radius;
@@ -305,6 +307,8 @@ public final class WorldGen {
         if (city > 0f) d = Math.max(d, 0.30f + city * 0.60f);
         float ruin = ruinStrength(x, z);
         if (ruin > 0f) d = Math.max(d, 0.26f + ruin * 0.48f);
+        // Askeri üs, hastane, havaalanı: ganimet ne kadar iyiyse o kadar kalabalık
+        d += Landmark.dangerAt(x, z);
         // Yerel dalgalanma: aynı biyomda bile boş ve kalabalık cepler var
         d *= 0.55f + fbm(x, z, 190f, 67) * 0.9f;
         return d < 0f ? 0f : (d > 1f ? 1f : d);
@@ -345,6 +349,8 @@ public final class WorldGen {
      * hiç yoksa PROP_NONE.
      */
     public static int propAt(int px, int pz, float wx, float wz) {
+        // Tasarlanmış mekânların içi boş kalır: binaların arasından ağaç çıkmaz.
+        if (Landmark.strength(wx, wz) > 0.02f) return PROP_NONE;
         int biome = biomeAt(wx, wz);
         float roll = rand01(px, pz, 401);
         float chance;

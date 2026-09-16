@@ -25,6 +25,13 @@ toplar, geceleri kampını savunursun.**
   yağmalarsın. Şehirler en zengin ama en tehlikeli yerlerdir.
 - **Zombi yoğunluğu yere göre değişir:** çölde ve tundrada neredeyse kimse yok,
   harabelerde ve şehirlerde kaynıyor. Yoğunluk gece her yerde artar.
+- **Tasarlanmış mekânlar (landmark):** prosedürel dünyanın üstünde elle
+  planlanmış yerler var — askeri üs, hastane, baraj, havaalanı, benzinlik,
+  radyo kulesi, terk edilmiş kamp. Ortalama her 1,5 km'de bir çıkarlar, her
+  birinin kendi yerleşim planı, adı (Kayıp Askeri Üs, Sisli Hastane), kendi
+  sandıkları ve kendi tehlikesi vardır. Askeri üs haritanın en zengin ve en
+  kalabalık yeri; kamp en sakini. Yaklaşınca adı üst çubukta, konumu küçük
+  haritada sarı çemberle görünür.
 - **Gün/gece döngüsü:** bir tam gün 12 dakika. Gündüz çalışır, gece saklanır
   ya da savaşırsın. Işık, sis ve gökyüzü saate göre değişir.
 
@@ -160,12 +167,14 @@ android/app/src/main/java/com/karargah/survival/
 │   ├── Pickup.java          yere düşen hurda/çekirdek/yiyecek/su
 │   ├── WorldGen.java        açık dünya üreteci: biyom, şehir, bina, yoğunluk
 │   ├── Harvest.java         kaynak düğümleri: ağaç, kaya, çalı, enkaz
+│   ├── Landmark.java        tasarlanmış mekânlar: plan, ganimet, tehlike
 │   ├── Threat.java          gün/geceye bağlı tehdit ve gece baskınları
 │   ├── BaseLayout.java      kampın halka düzeni ve genişleme kuralları
 │   ├── Models.java          bütün 3B modeller kodla üretilir
 │   ├── WorldRenderer.java   sahneyi çizer, iskelet animasyonu
 │   └── SaveStore.java       JSON kayıt
 └── ui/                      Canvas tabanlı dokunmatik arayüz
+    ├── ObjLoader.java       (engine) hazır OBJ model paketi yükleyici
     ├── UiKit.java           anlık mod arayüz kiti
     └── HudView.java         HUD, sanal çubuk, inşa çubuğu, menüler
 ```
@@ -173,6 +182,18 @@ android/app/src/main/java/com/karargah/survival/
 Hiç harici bağımlılık yok (`dependencies { }` boş): ne AndroidX, ne bir oyun
 motoru, ne de model/ses/doku dosyası. Bütün görseller ve sesler açılışta
 koddan üretilir; bu yüzden APK birkaç yüz kilobayt.
+
+### Hazır model paketi eklemek (isteğe bağlı)
+
+`app/src/main/assets/models/` altına bir OBJ paketi bırakırsan oyun onu
+kullanır; klasör boşsa her şey eskisi gibi kodla üretilir. Paket kısmi
+olabilir — yalnız `tree.obj` koyarsan yalnız ağaçlar değişir. Beklenen dosya
+adları, ölçü kuralları ve sınırlar o klasördeki `README.md` içinde.
+
+Önemli sınır: motor **doku okumaz** (köşe düzeni konum + normal + köşe
+rengidir), yüz renkleri `.mtl` dosyasındaki `Kd` değerinden gelir. Bu yüzden
+low-poly / vertex-colored paketler doğru görünür, dokulu paketler düz renkli
+ama doğru biçimli çıkar.
 
 ## Doğrulama
 
@@ -191,9 +212,15 @@ python3 tools/check_shaders.py       # GLSL ES 3.00 shader derlemesi
   kesilen düğüm geri büyüyor mu, alet toplamayı hızlandırıyor mu, duvar
   gerçekten odunla mı örülüyor, gece baskını gün batımında başlayıp şafakta
   bitiyor mu, yoldaşlar kaynak topluyor mu.
+- `ObjLoaderTest` hazır model paketi boru hattını denetler: OBJ köşe
+  referansları (negatif indeks, `12//5` biçimi) doğru çözülüyor mu, bozuk
+  girdi ve eksik paket oyunu çökertiyor mu.
 - `WorldTest` açık dünyayı denetler: dünya deterministik mi, bütün biyomlar
   haritada var mı, şehirlerde bina ve sokak var mı, zombi yoğunluğu şehirlerde
   gerçekten yüksek mi, kampın çevresi temiz mi, üs yer kalmayınca genişliyor mu.
+  Ayrıca tasarlanmış mekânlar: bütün türler haritada var mı, planları yarıçapın
+  içinde kalıyor mu, binaların arasında gezilecek yer var mı, içlerinden ağaç
+  çıkıyor mu, duvarlarından geçiliyor mu, şehirlerin içine kuruluyorlar mı.
 - `M4Test` matris matematiğini doğrular (matrisler bilerek saf Java'dır:
   `android.opengl.Matrix` birim testlerinde boş döndüğü için mesh üretimi test
   edilemezdi; uygulama geliştirme sırasında rastgele girdilerle Android'in

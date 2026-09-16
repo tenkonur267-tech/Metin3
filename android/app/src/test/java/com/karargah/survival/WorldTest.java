@@ -16,6 +16,7 @@ import com.karargah.survival.game.Npc;
 import com.karargah.survival.game.Pickup;
 import com.karargah.survival.game.Structure;
 import com.karargah.survival.game.Harvest;
+import com.karargah.survival.game.Landmark;
 import com.karargah.survival.game.WorldGen;
 import com.karargah.survival.game.Zombie;
 
@@ -492,5 +493,195 @@ public class WorldTest {
         assertTrue("oyuncu binanın içine giremez",
                 !WorldGen.blocked(w.player.x, w.player.z));
         assertTrue("oyuncu hareket etmiş olmalı", w.player.x != startX || true);
+    }
+
+    // ---- tasarlanmış mekânlar (landmark) --------------------------------
+
+    /** Haritada ilk bulunan verilen türden mekân; yoksa null. */
+    private static float[] findLandmark(int type) {
+        float[] c = new float[4];
+        for (int i = 1; i < 400; i++) {
+            for (int j = -4; j <= 4; j++) {
+                if (Landmark.cellAt(i, j, c) && (int) c[3] == type) return c;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    public void butunMekanTurleriHaritadaVar() {
+        boolean[] seen = new boolean[Landmark.TYPE_COUNT];
+        float[] c = new float[4];
+        for (int j = -60; j <= 60; j++) {
+            for (int i = -60; i <= 60; i++) {
+                if (Landmark.cellAt(i, j, c)) seen[(int) c[3]] = true;
+            }
+        }
+        for (int t = 0; t < Landmark.TYPE_COUNT; t++) {
+            assertTrue(Landmark.typeName(t) + " haritada bulunmalı", seen[t]);
+        }
+    }
+
+    @Test
+    public void mekanlarDeterministik() {
+        float[] a = new float[4], b = new float[4];
+        for (int i = 0; i < 2000; i++) {
+            float x = i * 53.7f - 20000f, z = i * -29.3f + 15000f;
+            assertEquals("aynı nokta aynı mekânı vermeli",
+                    Landmark.nearest(x, z, a), Landmark.nearest(x, z, b), 0f);
+            assertEquals(a[0], b[0], 0f);
+            assertEquals(a[3], b[3], 0f);
+        }
+    }
+
+    @Test
+    public void mekanlarinAdiVarVeSabit() {
+        float[] c = findLandmark(Landmark.L_MILITARY);
+        assertNotNull("haritada askeri üs olmalı", c);
+        String name = Landmark.nameAt(c[0], c[1], Landmark.L_MILITARY);
+        assertTrue("ad tür adını içermeli", name.contains("Askeri Üs"));
+        assertEquals("ad sabit olmalı", name,
+                Landmark.nameAt(c[0], c[1], Landmark.L_MILITARY));
+    }
+
+    @Test
+    public void usunCevresindeMekanYok() {
+        for (int i = -70; i <= 70; i++) {
+            for (int j = -70; j <= 70; j++) {
+                assertTrue("üs bölgesinde mekân binası olmamalı",
+                        !Landmark.blocked(i * 2f, j * 2f, 0.5f));
+            }
+        }
+        assertEquals("üs merkezinde mekân etkisi olmamalı", 0f,
+                Landmark.strength(0f, 0f), 0f);
+    }
+
+    @Test
+    public void askeriUssunTasarlanmisPlaniVar() {
+        float[] c = findLandmark(Landmark.L_MILITARY);
+        assertNotNull(c);
+        float cx = c[0], cz = c[1];
+        int parts = Landmark.partCount(Landmark.L_MILITARY);
+        assertTrue("askeri üs çok parçalı olmalı", parts >= 10);
+
+        // Parçalar mekânın yarıçapı içinde kalmalı
+        float[] p = new float[6];
+        for (int i = 0; i < parts; i++) {
+            Landmark.partAt(Landmark.L_MILITARY, cx, cz, i, p);
+            float reach = MathX.len(p[0] - cx, p[1] - cz) + Math.max(p[2], p[3]);
+            assertTrue("parça " + i + " mekânın dışına taşmamalı (" + reach + ")",
+                    reach <= c[2] + 12f);
+            assertTrue("parçanın hacmi olmalı", p[2] > 0f && p[3] > 0f && p[4] > 0f);
+        }
+
+        // İçinde hem bina hem gezilecek boşluk olmalı
+        int solid = 0, open = 0;
+        for (int i = -50; i <= 50; i++) {
+            for (int j = -50; j <= 50; j++) {
+                if (Landmark.blocked(cx + i, cz + j, 0.4f)) solid++;
+                else open++;
+            }
+        }
+        assertTrue("üste bina olmalı", solid > 400);
+        assertTrue("binaların arasında gezilebilmeli", open > solid);
+    }
+
+    @Test
+    public void mekanlarinIcindeAgacBitmez() {
+        float[] c = findLandmark(Landmark.L_MILITARY);
+        assertNotNull(c);
+        int props = 0;
+        for (int i = -10; i <= 10; i++) {
+            for (int j = -10; j <= 10; j++) {
+                float x = c[0] + i * 3f, z = c[1] + j * 3f;
+                if (WorldGen.propAt((int) (x / 6f), (int) (z / 6f), x, z)
+                        != WorldGen.PROP_NONE) {
+                    props++;
+                }
+            }
+        }
+        assertEquals("mekânın içinden ağaç çıkmamalı", 0, props);
+    }
+
+    @Test
+    public void zenginMekanlarDahaTehlikeli() {
+        assertTrue("askeri üs kamptan tehlikeli",
+                Landmark.dangerOf(Landmark.L_MILITARY) > Landmark.dangerOf(Landmark.L_CAMP));
+        assertTrue("askeri üs kamptan zengin",
+                Landmark.lootOf(Landmark.L_MILITARY) > Landmark.lootOf(Landmark.L_CAMP));
+
+        // Tehlike gerçekten zombi yoğunluğuna yansımalı
+        float[] c = findLandmark(Landmark.L_MILITARY);
+        assertNotNull(c);
+        assertTrue("mekân merkezinde tehlike katkısı olmalı",
+                Landmark.dangerAt(c[0], c[1]) > 0.3f);
+        assertEquals("mekânın uzağında katkı olmamalı", 0f,
+                Landmark.dangerAt(c[0] + c[2] * 4f, c[1] + c[2] * 4f), 0f);
+    }
+
+    @Test
+    public void mekanlardaYagmalanacakSandikVar() {
+        float[] c = findLandmark(Landmark.L_MILITARY);
+        assertNotNull(c);
+        float[] out = new float[2];
+        int chests = 0;
+        for (int i = 0; i < Landmark.partCount(Landmark.L_MILITARY); i++) {
+            if (Landmark.lootAt(Landmark.L_MILITARY, c[0], c[1], i, out)) chests++;
+        }
+        assertTrue("askeri üste sandık olmalı", chests > 0);
+        assertTrue("zengin mekân daha çok hurda vermeli",
+                Landmark.lootRichness(Landmark.L_MILITARY)
+                        > Landmark.lootRichness(Landmark.L_CAMP));
+    }
+
+    @Test
+    public void mekanBinasindanGecilemez() {
+        InputState in = new InputState();
+        GameWorld w = world(in);
+        w.spawnRoamers = false;
+        float[] c = findLandmark(Landmark.L_HOSPITAL);
+        assertNotNull("hastane bulunmalı", c);
+        // Mekânın tamamen dışından merkeze doğru yürü: hiçbir an bir binanın
+        // içine girmemeli. (Başlangıcı bir binanın içine koymak yanıltıcı
+        // olur; sıkışan gövdenin dışarı çıkabilmesi için kasıtlı bir kaçış
+        // kuralı var.)
+        w.player.x = c[0] - c[2] - 6f;
+        w.player.z = c[1];
+        assertTrue("başlangıç bina dışında olmalı",
+                !Landmark.blocked(w.player.x, w.player.z, 0.4f));
+        boolean everInside = false;
+        for (int i = 0; i < 900; i++) {
+            w.player.update(w, 1f / 60f, 1f, 0f, false);
+            if (Landmark.blocked(w.player.x, w.player.z, 0f)) everInside = true;
+        }
+        assertTrue("oyuncu hastanenin duvarından geçememeli", !everInside);
+        assertTrue("oyuncu binaya çarpıp durmalı, merkeze varmamalı",
+                w.player.x < c[0]);
+    }
+
+    @Test
+    public void mekanlarSehirlerinIcineKurulmaz() {
+        float[] c = new float[4];
+        int checked = 0;
+        for (int j = -50; j <= 50 && checked < 400; j++) {
+            for (int i = -50; i <= 50 && checked < 400; i++) {
+                if (!Landmark.cellAt(i, j, c)) continue;
+                checked++;
+                assertTrue("mekân şehrin içine düşmemeli",
+                        WorldGen.cityStrength(c[0], c[1]) <= 0.15f);
+            }
+        }
+        assertTrue("yeterince mekân incelenmeli", checked > 100);
+    }
+
+    @Test
+    public void mekanAdiYakinkenGorunur() {
+        float[] c = findLandmark(Landmark.L_MILITARY);
+        assertNotNull(c);
+        assertNotNull("mekânın dibinde adı görünmeli",
+                Landmark.nearestName(c[0], c[1], 200f));
+        assertTrue("çok uzaktayken görünmemeli",
+                Landmark.nearestName(c[0], c[1], 1f) == null
+                        || Landmark.nearest(c[0], c[1], new float[4]) <= 1f);
     }
 }
