@@ -118,22 +118,20 @@ public class GameWorld {
         // hem oyuncu/yoldaşlar girip çıkabiliyor hem de zombiler kapılara
         // yönlendiği için kuleleri oraya dizmek işe yarıyor.
         int c = BuildGrid.N / 2;
-        // Geniş başlangıç avlusu: reaktör ile sur arasında hareket ve yeni
-        // yapılar için yaklaşık 18 birim boşluk bırakılır.
-        for (int i = -10; i <= 9; i++) {
-            if (i < -1 || i > 1) {
-                placeFree(Balance.S_WALL, c + i, c - 10);
-                placeFree(Balance.S_WALL, c + i, c + 9);
+        for (int i = -4; i <= 4; i++) {
+            if (i != 0 && i != 1) {
+                placeFree(Balance.S_WALL, c + i, c - 5);
+                placeFree(Balance.S_WALL, c + i, c + 4);
             }
         }
-        for (int i = -9; i <= 8; i++) {
-            if (i < -1 || i > 1) {
-                placeFree(Balance.S_WALL, c - 10, c + i);
-                placeFree(Balance.S_WALL, c + 9, c + i);
+        for (int i = -4; i <= 3; i++) {
+            if (i != -1 && i != 0) {
+                placeFree(Balance.S_WALL, c - 5, c + i);
+                placeFree(Balance.S_WALL, c + 4, c + i);
             }
         }
-        placeFree(Balance.S_MG, c - 7, c - 7);
-        placeFree(Balance.S_MG, c + 6, c + 6);
+        placeFree(Balance.S_MG, c - 3, c - 3);
+        placeFree(Balance.S_MG, c + 2, c + 2);
 
         player.x = 0f;
         player.z = 7f;

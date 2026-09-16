@@ -498,7 +498,7 @@ public class SquadTest {
 
         // sur hattından bir duvarı sök (kapı olmayan bir yerden)
         int c = BuildGrid.N / 2;
-        Structure gapWall = w.grid.at(c + 3, c - 10);
+        Structure gapWall = w.grid.at(c + 3, c - 5);
         assertNotNull("sur duvarı olmalı", gapWall);
         int gx = gapWall.gx, gz = gapWall.gz;
         w.grid.clear(gx, gz);
@@ -510,7 +510,7 @@ public class SquadTest {
         assertTrue("sur deliği kapatılmalı", filled);
         // kapı hücreleri (kenar ortası) kapatılmamalı
         assertTrue("kuzey kapısı açık kalmalı",
-                w.grid.at(c, c + 9) == null && w.planAt(c, c + 9) == null);
+                w.grid.at(c, c + 4) == null && w.planAt(c, c + 4) == null);
     }
 
     /** Dalga sırasında yeni şantiye açmaz; ekip savaşır. */

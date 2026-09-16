@@ -38,6 +38,9 @@ public final class OpenWorld {
         ambientTimer -= dt;
         if (!w.started || ambientTimer > 0f || w.gameOver) return;
         ambientTimer = 2.2f;
+        // Üs dalgalarının sayacıyla karışmasın: çevresel nüfus oyuncu üs
+        // sınırını geçip keşfe çıktığında etkinleşir.
+        if (MathX.len(w.player.x, w.player.z) < Balance.BUILD_RADIUS_MAX + 18f) return;
 
         // Dalga zombilerine ek olarak açık dünyada oyuncu çevresinde yaşayan
         // nüfus. Şehir, bataklık ve gece daha tehlikelidir.

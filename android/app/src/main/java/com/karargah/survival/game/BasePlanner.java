@@ -229,7 +229,8 @@ public class BasePlanner {
         }
         // İç alan kalmadığında sur hedefi kademeli büyür; bir anda bütün
         // haritayı duvar planıyla doldurmaz.
-        float expansion = occupied > 24 ? 8f : occupied > 16 ? 4f : 0f;
+        if (occupied <= 16) return 9.5f;
+        float expansion = occupied > 24 ? 8f : 4f;
         return Math.min(34f, 19f + expansion + Math.min(7f, (w.waves.wave / 5) * 2f));
     }
 
