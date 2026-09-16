@@ -105,6 +105,27 @@ public class WorldTest {
     }
 
     @Test
+    public void sehirlerinAdiVarVeSabit() {
+        // Şehir adları koordinattan türetilir: aynı şehir her oyunda aynı ad.
+        String found = null;
+        float fx = 0f, fz = 0f;
+        for (int i = 1; i < 60 && found == null; i++) {
+            float x = i * WorldGen.CITY_SPACING;
+            String name = WorldGen.nearestCityName(x, 0f, 600f);
+            if (name != null) {
+                found = name;
+                fx = x;
+            }
+        }
+        assertNotNull("haritada isimli şehir bulunmalı", found);
+        assertEquals("aynı nokta aynı adı vermeli", found,
+                WorldGen.nearestCityName(fx, fz, 600f));
+        assertTrue("uzakta şehir adı görünmemeli",
+                WorldGen.nearestCityName(fx, 40000f, 600f) == null
+                        || !WorldGen.nearestCityName(fx, 40000f, 600f).equals(found));
+    }
+
+    @Test
     public void sehirlerdeBinaVeSokakVar() {
         // Bir şehir bul, içinde hem bina hem boş sokak olmalı
         float[] c = new float[3];

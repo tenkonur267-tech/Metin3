@@ -103,6 +103,49 @@ public final class WorldGen {
 
     // ---- şehirler -------------------------------------------------------
 
+    /**
+     * Şehir adları. Kafes hücresinin karışımından seçilir, yani aynı şehir
+     * her oyunda aynı ada sahip olur; haritada yön bulmayı kolaylaştırır.
+     */
+    private static final String[] CITY_NAMES = {
+            "Güvenli Liman", "Eski Sanayi", "Kızıl Vadi", "Batık Şehir",
+            "Kuzey Karakolu", "Sis Kasabası", "Son İstasyon", "Kayıp Başkent",
+            "Demir Ocağı", "Kuru Geçit", "Taş Kapı", "Çorak Tepe",
+            "Yankı Vadisi", "Kara Liman", "Bozkır Kavşağı", "Sessiz Mahalle"
+    };
+
+    /** Kafes hücresindeki şehrin adı. */
+    public static String cityName(int ci, int cj) {
+        return CITY_NAMES[Math.floorMod(hash(ci, cj, 108), CITY_NAMES.length)];
+    }
+
+    /**
+     * Noktaya en yakın şehrin adı; menzilde şehir yoksa null. Arayüzde
+     * "Eski Sanayi 240m" gibi bir yön bilgisi vermek için kullanılır.
+     */
+    public static String nearestCityName(float x, float z, float range) {
+        int ci = (int) Math.floor(x / CITY_SPACING);
+        int cj = (int) Math.floor(z / CITY_SPACING);
+        float bestD = -1f;
+        String best = null;
+        float[] tmp = scratchName;
+        for (int j = cj - 1; j <= cj + 1; j++) {
+            for (int i = ci - 1; i <= ci + 1; i++) {
+                if (!cityCell(i, j, tmp)) continue;
+                float dx = x - tmp[0], dz = z - tmp[1];
+                float d = (float) Math.sqrt(dx * dx + dz * dz);
+                if (d > range) continue;
+                if (bestD < 0f || d < bestD) {
+                    bestD = d;
+                    best = cityName(i, j);
+                }
+            }
+        }
+        return best;
+    }
+
+    private static final float[] scratchName = new float[3];
+
     /** Şehir merkezlerinin serpildiği kafesin adımı. */
     public static final float CITY_SPACING = 1400f;
     /** Üssün etrafındaki bu yarıçapta şehir kurulmaz (başlangıç alanı açık kalsın). */

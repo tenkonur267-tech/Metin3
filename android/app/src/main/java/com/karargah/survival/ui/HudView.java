@@ -249,8 +249,10 @@ public class HudView extends View {
         ui.labelShadow(c, "SU", nmid + 11 * sc, top + 60 * sc, 9 * sc, 0xFFE1F5FE,
                 Paint.Align.LEFT);
 
-        // biyom, gün ve saat
-        ui.labelShadow(c, WorldGen.biomeName(gw.biome) + "  ·  " + gw.dayCount + ". gün "
+        // biyom / şehir, gün ve saat
+        String city = WorldGen.nearestCityName(p.x, p.z, 520f);
+        String place = city != null ? city : WorldGen.biomeName(gw.biome);
+        ui.labelShadow(c, place + "  ·  " + gw.dayCount + ". gün "
                         + gw.clockText() + (gw.isNight() ? "  ☾" : "  ☀"),
                 pad + 12 * sc, top + 73 * sc, 12 * sc,
                 gw.isNight() ? 0xFF9FA8DA : 0xFFCFD8DC, Paint.Align.LEFT);

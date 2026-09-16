@@ -18,7 +18,9 @@ toplar, geceleri kampını savunursun.**
   yer kaplamaz ve aynı yere döndüğünde aynı manzara seni karşılar.
 - **Yedi biyom:** ova, orman, bataklık, çöl, tundra, harabe ve şehir. Her
   biyomun kendi zemini, bitki örtüsü ve zombi yoğunluğu var.
-- **Şehirler:** kafes üzerine serpilmiş merkezler, sokak ızgarası ve binalar.
+- **Şehirler:** kafes üzerine serpilmiş **isimli** yerleşimler (Güvenli Liman,
+  Eski Sanayi, Kayıp Başkent...), sokak ızgarası ve binalar. Ad da koordinattan
+  türetilir, yani aynı şehir her oyunda aynı adı taşır ve yön bulmayı kolaylaştırır.
   Binaların içinden geçilmez; aralarında dolaşıp bina önlerindeki sandıkları
   yağmalarsın. Şehirler en zengin ama en tehlikeli yerlerdir.
 - **Zombi yoğunluğu yere göre değişir:** çölde ve tundrada neredeyse kimse yok,
